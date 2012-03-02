@@ -3,7 +3,7 @@
     version: "5.1.25";
     original-source-location: "";
     original-source-website: "http://www.oracle.com/technetwork/database/berkeleydb/downloads/index.html";
-    license: "Custom license, see LICENSE";
+    license: "sleepycat";
     packager: "Vincent Povirk <madewokherd@gmail.com>";
 }
 
