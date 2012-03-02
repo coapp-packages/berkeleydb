@@ -47,6 +47,47 @@ x86 {
     ";
 };
 
+common-test {
+    build-command:@"
+        if exist *.db del /Q *.db
+        dir /b | ${outdir}ex_access || goto failed
+        ${outdir}db_verify access.db || goto failed
+        ${outdir}db_dump access.db > access.dump || goto failed
+        ${outdir}db_load test.db < access.dump || goto failed
+        ${outdir}db_verify test.db || goto failed
+        ${outdir}db_dump test.db > test.dump || goto failed
+        echo n|comp /A /L access.dump test.dump || goto failed
+        echo
+        del /Q *.db *.dump
+        rmdir /S /Q access.db-journal
+    ";
+
+    clean-command:@"
+        del /Q *.db *.dump
+        rmdir /S /Q access.db-journal
+    ";
+};
+
+test-x86 {
+    uses: { common-test };
+
+    set: {
+        outdir=@"build_windows\Win32\Release\";
+    };
+};
+
 release {
-	uses: { x86 };
+    uses: { x86 };
+};
+
+test {
+    uses: { release };
+
+    build-command:@"
+        ptk build test-x86
+    ";
+
+    clean-command:@"
+        ptk clean test-x86
+    ";
 };
