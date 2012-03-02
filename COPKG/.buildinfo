@@ -1,6 +1,6 @@
 #product-info  {
     product-name: "berkeleydb";
-    version: "5.1.25";
+    version: "${package-version}";
     original-source-location: "";
     original-source-website: "http://www.oracle.com/technetwork/database/berkeleydb/downloads/index.html";
     license: "sleepycat";
@@ -90,4 +90,14 @@ test {
     clean-command:@"
         ptk clean test-x86
     ";
+};
+
+sign {
+    uses: { release };
+};
+
+package {
+    uses: { sign };
+
+    build-command: @"autopackage.exe COPKG\*.autopkg";
 };
