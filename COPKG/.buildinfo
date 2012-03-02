@@ -46,3 +46,7 @@ x86 {
         rmdir /S /Q build_windows\Win32 2>NUL
     ";
 };
+
+release {
+	uses: { x86 };
+};
