@@ -8,33 +8,34 @@
 }
 
 x86 {
-    compiler: vc10-x86;
+    compiler: vc10;
+    platform: x86;
       
     targets: {
-		"build_windows\Win32\Release\libdb51.lib",
-		"build_windows\Win32\Release\libdb51.exp",
-		"build_windows\Win32\Release\libdb51.dll",
-		"build_windows\Win32\Release\libdb_sql51.lib",
-		"build_windows\Win32\Release\libdb_sql51.exp",
-		"build_windows\Win32\Release\libdb_sql51.dll",
-		"build_windows\Win32\Release\libdb_stl51.lib",
-		"build_windows\Win32\Release\libdb_stl51.exp",
-		"build_windows\Win32\Release\libdb_stl51.dll",
-		"build_windows\Win32\Release\dbsql.exe",
-		"build_windows\Win32\Release\db_archive.exe",
-		"build_windows\Win32\Release\db_checkpoint.exe",
-		"build_windows\Win32\Release\db_deadlock.exe",
-		"build_windows\Win32\Release\db_dump.exe",
-		"build_windows\Win32\Release\db_hotbackup.exe",
-		"build_windows\Win32\Release\db_load.exe",
-		"build_windows\Win32\Release\db_log_verify.exe",
-		"build_windows\Win32\Release\db_printlog.exe",
-		"build_windows\Win32\Release\db_recover.exe",
-		"build_windows\Win32\Release\db_replicate.exe",
-		"build_windows\Win32\Release\db_sql_codegen.exe",
-		"build_windows\Win32\Release\db_stat.exe",
-		"build_windows\Win32\Release\db_upgrade.exe",
-		"build_windows\Win32\Release\db_verify.exe"
+        "build_windows\Win32\Release\libdb51.lib",
+        "build_windows\Win32\Release\libdb51.exp",
+        "build_windows\Win32\Release\libdb51.dll",
+        "build_windows\Win32\Release\libdb_sql51.lib",
+        "build_windows\Win32\Release\libdb_sql51.exp",
+        "build_windows\Win32\Release\libdb_sql51.dll",
+        "build_windows\Win32\Release\libdb_stl51.lib",
+        "build_windows\Win32\Release\libdb_stl51.exp",
+        "build_windows\Win32\Release\libdb_stl51.dll",
+        "build_windows\Win32\Release\dbsql.exe",
+        "build_windows\Win32\Release\db_archive.exe",
+        "build_windows\Win32\Release\db_checkpoint.exe",
+        "build_windows\Win32\Release\db_deadlock.exe",
+        "build_windows\Win32\Release\db_dump.exe",
+        "build_windows\Win32\Release\db_hotbackup.exe",
+        "build_windows\Win32\Release\db_load.exe",
+        "build_windows\Win32\Release\db_log_verify.exe",
+        "build_windows\Win32\Release\db_printlog.exe",
+        "build_windows\Win32\Release\db_recover.exe",
+        "build_windows\Win32\Release\db_replicate.exe",
+        "build_windows\Win32\Release\db_sql_codegen.exe",
+        "build_windows\Win32\Release\db_stat.exe",
+        "build_windows\Win32\Release\db_upgrade.exe",
+        "build_windows\Win32\Release\db_verify.exe"
     };
       
     build-command:@"
