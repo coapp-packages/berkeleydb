@@ -1,10 +1,15 @@
 @import "version.inc";
 @import "outercurve.inc";
 
+#define { 
+    flavor: "${flav??vc10}"; 
+    arch : "${arc??x86}";
+}
+
 package {
-    name: "berkeleydb[vc10]";
+    name: "berkeleydb[${flavor}]";
     version: "${package-version}";
-    arch : "x86";
+    arch : "${arch}";
     
     display-name: "Berkeley Database library";
     location: "http://coapp.org/repository/${OutputFilename}";
