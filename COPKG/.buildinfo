@@ -8,10 +8,41 @@
 }
 
 x86 {
-    compiler: vc10;
-    platform: x86;
+	set: {
+		COMP="${COMP??vc10}";
+		PLAT="x86";
+		CONFIG="${CONFIG??Debug}";
+	}
+
+    compiler: ${COMP};
+    platform: ${PLAT};
       
     targets: {
+		"output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_deadlock.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_dump.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_hotbackup.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_load.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_log_verify.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_printlog.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_recover.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_replicate.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_sql_codegen.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_stat.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe"
+		/*
         "build_windows\Win32\Release\libdb51.lib",
         "build_windows\Win32\Release\libdb51.exp",
         "build_windows\Win32\Release\libdb51.dll",
@@ -36,15 +67,120 @@ x86 {
         "build_windows\Win32\Release\db_stat.exe",
         "build_windows\Win32\Release\db_upgrade.exe",
         "build_windows\Win32\Release\db_verify.exe"
+		*/
     };
       
     build-command:@"
-        msbuild /p:Platform=Win32 /p:Configuration=Release build_windows\Berkeley_DB_vs2010.sln
+		if ""${COMP}""==""vc10"" (
+			msbuild /p:Platform=Win32 /p:Configuration=${CONFIG} build_windows\Berkeley_DB_vs2010.sln
+		)
+		if ""${COMP}""==""vc8"" (
+			msbuild /p:Platform=Win32 /p:Configuration=${CONFIG} build_windows\Berkeley_DB.sln
+		)
+		copy build_windows\Win32\${CONFIG}\libdb51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib
+		copy build_windows\Win32\${CONFIG}\libdb51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp
+		copy build_windows\Win32\${CONFIG}\libdb51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll
+		copy build_windows\Win32\${CONFIG}\libdb_sql51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib
+		copy build_windows\Win32\${CONFIG}\libdb_sql51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp
+		copy build_windows\Win32\${CONFIG}\libdb_sql51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll
+		copy build_windows\Win32\${CONFIG}\libdb_stl51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib
+		copy build_windows\Win32\${CONFIG}\libdb_stl51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp
+		copy build_windows\Win32\${CONFIG}\libdb_stl51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll
+		copy build_windows\Win32\${CONFIG}\dbsql.exe output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe
+		copy build_windows\Win32\${CONFIG}\db_archive.exe output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe
+		copy build_windows\Win32\${CONFIG}\db_checkpoint.exe output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe
+		copy build_windows\Win32\${CONFIG}\db_deadlock.exe output\${COMP}\${PLAT}\${CONFIG}\db_deadlock.exe
+		copy build_windows\Win32\${CONFIG}\db_dump.exe output\${COMP}\${PLAT}\${CONFIG}\db_dump.exe
+		copy build_windows\Win32\${CONFIG}\db_hotbackup.exe output\${COMP}\${PLAT}\${CONFIG}\db_hotbackup.exe
+		copy build_windows\Win32\${CONFIG}\db_load.exe output\${COMP}\${PLAT}\${CONFIG}\db_load.exe
+		copy build_windows\Win32\${CONFIG}\db_log_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_log_verify.exe
+		copy build_windows\Win32\${CONFIG}\db_printlog.exe output\${COMP}\${PLAT}\${CONFIG}\db_printlog.exe
+		copy build_windows\Win32\${CONFIG}\db_recover.exe output\${COMP}\${PLAT}\${CONFIG}\db_recover.exe
+		copy build_windows\Win32\${CONFIG}\db_replicate.exe output\${COMP}\${PLAT}\${CONFIG}\db_replicate.exe
+		copy build_windows\Win32\${CONFIG}\db_sql_codegen.exe output\${COMP}\${PLAT}\${CONFIG}\db_sql_codegen.exe
+		copy build_windows\Win32\${CONFIG}\db_stat.exe output\${COMP}\${PLAT}\${CONFIG}\db_stat.exe
+		copy build_windows\Win32\${CONFIG}\db_upgrade.exe output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe
+		copy build_windows\Win32\${CONFIG}\db_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe
     ";
       
     clean-command:@"
-        rmdir /S /Q build_windows\Win32 2>NUL
+		rmdir /S /Q build_windows\Win32 2>NUL
+	";
+};
+
+x64 {
+	set: {
+		COMP="${COMP??vc10}";
+		PLAT="x64";
+		CONFIG="${CONFIG??Debug}";
+	}
+
+    compiler: ${COMP};
+    platform: ${PLAT};
+      
+    targets: {
+		"output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_deadlock.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_dump.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_hotbackup.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_load.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_log_verify.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_printlog.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_recover.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_replicate.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_sql_codegen.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_stat.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe"
+    };
+      
+    build-command:@"
+		if ""${COMP}""==""vc10"" (
+			msbuild /p:Platform=x64 /p:Configuration=${CONFIG} build_windows\Berkeley_DB_vs2010.sln
+		)
+		if ""${COMP}""==""vc8"" (
+			msbuild /p:Platform=x64 /p:Configuration=${CONFIG} build_windows\Berkeley_DB.sln
+		)
+		copy build_windows\x64\${CONFIG}\libdb51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib
+		copy build_windows\x64\${CONFIG}\libdb51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp
+		copy build_windows\x64\${CONFIG}\libdb51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll
+		copy build_windows\x64\${CONFIG}\libdb_sql51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib
+		copy build_windows\x64\${CONFIG}\libdb_sql51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp
+		copy build_windows\x64\${CONFIG}\libdb_sql51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll
+		copy build_windows\x64\${CONFIG}\libdb_stl51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib
+		copy build_windows\x64\${CONFIG}\libdb_stl51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp
+		copy build_windows\x64\${CONFIG}\libdb_stl51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll
+		copy build_windows\x64\${CONFIG}\dbsql.exe output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe
+		copy build_windows\x64\${CONFIG}\db_archive.exe output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe
+		copy build_windows\x64\${CONFIG}\db_checkpoint.exe output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe
+		copy build_windows\x64\${CONFIG}\db_deadlock.exe output\${COMP}\${PLAT}\${CONFIG}\db_deadlock.exe
+		copy build_windows\x64\${CONFIG}\db_dump.exe output\${COMP}\${PLAT}\${CONFIG}\db_dump.exe
+		copy build_windows\x64\${CONFIG}\db_hotbackup.exe output\${COMP}\${PLAT}\${CONFIG}\db_hotbackup.exe
+		copy build_windows\x64\${CONFIG}\db_load.exe output\${COMP}\${PLAT}\${CONFIG}\db_load.exe
+		copy build_windows\x64\${CONFIG}\db_log_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_log_verify.exe
+		copy build_windows\x64\${CONFIG}\db_printlog.exe output\${COMP}\${PLAT}\${CONFIG}\db_printlog.exe
+		copy build_windows\x64\${CONFIG}\db_recover.exe output\${COMP}\${PLAT}\${CONFIG}\db_recover.exe
+		copy build_windows\x64\${CONFIG}\db_replicate.exe output\${COMP}\${PLAT}\${CONFIG}\db_replicate.exe
+		copy build_windows\x64\${CONFIG}\db_sql_codegen.exe output\${COMP}\${PLAT}\${CONFIG}\db_sql_codegen.exe
+		copy build_windows\x64\${CONFIG}\db_stat.exe output\${COMP}\${PLAT}\${CONFIG}\db_stat.exe
+		copy build_windows\x64\${CONFIG}\db_upgrade.exe output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe
+		copy build_windows\x64\${CONFIG}\db_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe
     ";
+      
+    clean-command:@"
+		rmdir /S /Q build_windows\x64 2>NUL
+	";
 };
 
 common-test {
@@ -57,47 +193,81 @@ common-test {
         ${outdir}db_verify test.db || goto failed
         ${outdir}db_dump test.db > test.dump || goto failed
         echo n|comp /A /L access.dump test.dump || goto failed
-        echo
+        echo.
         del /Q *.db *.dump
-        rmdir /S /Q access.db-journal
+        rmdir /S /Q access.db-journal >nul 2>nul
     ";
 
+	/*
     clean-command:@"
         del /Q *.db *.dump
         rmdir /S /Q access.db-journal
     ";
+	*/
 };
 
+/*
 test-x86 {
+	
     uses: { common-test };
 
     set: {
         outdir=@"build_windows\Win32\Release\";
     };
 };
+*/
 
 release {
-    uses: { x86 };
+	set: {
+		COMP="${COMP??vc8, vc10}";
+		PLAT="${PLAT??x86, x64}";
+		CONFIG="Release";
+	}
+
+    build-command: @"
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				ptk %%B --COMP=%%A
+			)
+		)
 };
 
 test {
+	set: {
+		COMP="${COMP??vc8, vc10}";
+		PLAT="${PLAT??x86, x64}";
+	}
+
     uses: { release };
 
     build-command:@"
-        ptk build test-x86
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				ptk common-test --outdir=output\%%A\%%B\Release\
+			)
+		)
     ";
 
+	/*
     clean-command:@"
         ptk clean test-x86
     ";
-};
-
-sign {
-    uses: { release };
+	*/
 };
 
 package {
-    uses: { sign };
+	set: {
+		COMP="${COMP??vc8, vc10}";
+		PLAT="${PLAT??x86, x64}";
+	}
 
-    build-command: @"autopackage.exe COPKG\*.autopkg";
+    uses: { release };
+
+    build-command: @"
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				autopackage.exe COPKG\berkeleydb.autopkg --arc=%%B --flav=%%A
+			)
+		)
+    ";
 };
