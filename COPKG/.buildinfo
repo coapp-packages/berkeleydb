@@ -224,7 +224,12 @@ release {
 		CONFIG="Release";
 	}
 
-    uses: { "${PLAT}" };
+    build-command: @"
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				ptk %%B --COMP=%%A
+			)
+		)
 };
 
 test {
