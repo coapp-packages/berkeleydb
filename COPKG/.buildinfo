@@ -251,7 +251,18 @@ test {
 };
 
 package {
+	set: {
+		COMP="${COMP??vc8, vc10}";
+		PLAT="${PLAT??x86, x64}";
+	}
+
     uses: { release };
 
-    build-command: @"autopackage.exe COPKG\*.autopkg";
+    build-command: @"
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				autopackage.exe COPKG\berkeleydb.autopkg --arc=%%B --flav=%%A
+			)
+		)
+    ";
 };
