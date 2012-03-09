@@ -18,13 +18,13 @@ metadata {
 }
 
 license[sleepycat] {
-    license: "..\LICENSE";
+    license: "..\\LICENSE";
     license-url: "http://www.opensource.org/licenses/Sleepycat";
     license-type: "sleepycat";
 }
 
 files[headers] {
-    root: "..\\";
+    root: "..\\build_windows\\";
     include: {
         "*.h"
     };
@@ -36,9 +36,9 @@ files[headers] {
 }
 
 files[docs] {
-    root: "..\\doc\\";
+    root: "..\\docs\\";
     include: {
-        "*"
+        "**"
     };
     
     trim-path:all;
