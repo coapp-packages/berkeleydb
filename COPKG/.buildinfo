@@ -41,7 +41,9 @@ x86 {
         "output\${COMP}\${PLAT}\${CONFIG}\db_sql_codegen.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\db_stat.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe",
-        "output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe"
+        "output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\ex_access.exe",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib"
 		/*
         "build_windows\Win32\Release\libdb51.lib",
         "build_windows\Win32\Release\libdb51.exp",
@@ -103,6 +105,7 @@ x86 {
 		copy build_windows\Win32\${CONFIG}\db_upgrade.exe output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe
 		copy build_windows\Win32\${CONFIG}\db_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe
 		copy build_windows\Win32\${CONFIG}\ex_access.exe output\${COMP}\${PLAT}\${CONFIG}\ex_access.exe
+        copy build_windows\Win32\${CONFIG}_static\libdb_stl51s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib
     ";
       
     clean-command:@"
@@ -144,7 +147,9 @@ x64 {
         "output\${COMP}\x64\${CONFIG}\db_sql_codegen.exe",
         "output\${COMP}\x64\${CONFIG}\db_stat.exe",
         "output\${COMP}\x64\${CONFIG}\db_upgrade.exe",
-        "output\${COMP}\x64\${CONFIG}\db_verify.exe"
+        "output\${COMP}\x64\${CONFIG}\db_verify.exe",
+        "output\${COMP}\x64\${CONFIG}\ex_access.exe",
+        "output\${COMP}\x64\${CONFIG}\libdb_stl51s.lib"
     };
       
     build-command:@"
@@ -180,6 +185,7 @@ x64 {
 		copy build_windows\x64\${CONFIG}\db_upgrade.exe output\${COMP}\x64\${CONFIG}\db_upgrade.exe
 		copy build_windows\x64\${CONFIG}\db_verify.exe output\${COMP}\x64\${CONFIG}\db_verify.exe
 		copy build_windows\x64\${CONFIG}\ex_access.exe output\${COMP}\x64\${CONFIG}\ex_access.exe
+        copy build_windows\x64\${CONFIG}_static\libdb_stl51s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib
     ";
       
     clean-command:@"
@@ -210,17 +216,6 @@ common-test {
 	*/
 };
 
-/*
-test-x86 {
-	
-    uses: { common-test };
-
-    set: {
-        outdir=@"build_windows\Win32\Release\";
-    };
-};
-*/
-
 release {
 	set: {
 		COMP="${COMP??vc8, vc10}";
@@ -234,6 +229,27 @@ release {
 	is to use the x86_64 cross-compiler tools instead, by setting the environ
 	to x86 for the x64 build in vc8.
 	*/
+    build-command: @"
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+				if ""%%A""==""vc8"" (
+					ptk %%B --COMP=%%A --PLAT=x86 --nologo
+				) else (
+					ptk %%B --COMP=%%A --nologo
+				)
+			)
+		)
+    ";
+};
+
+debug {
+	
+	set: {
+		COMP="${COMP??vc8, vc10}";
+		PLAT="${PLAT??x86, x64}";
+		CONFIG="Debug";
+	};
+
     build-command: @"
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
@@ -279,9 +295,14 @@ package {
     uses: { release };
 
     build-command: @"
+        REM Start with the common dev package...
+        autopackage.exe COPKG\berkeleydb-dev-common.autopkg
+        
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
+                REM Build the end-user assembly package first, then the dev package that depends on it...
 				autopackage.exe COPKG\berkeleydb.autopkg --arc=%%B --flav=%%A
+                autopackage.exe COPKG\berkeleydb-dev.autopkg --arc=%%B --flav=%%A
 			)
 		)
     ";

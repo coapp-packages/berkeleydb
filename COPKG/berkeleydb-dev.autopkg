@@ -1,0 +1,81 @@
+@import "version.inc";
+@import "outercurve.inc";
+
+#define { 
+    flavor: "${flav??vc10}"; 
+    arch : "${arc??x86}";
+}
+
+package {
+    name: "berkeleydb[${flavor}]-dev";
+    version: "${package-version}";
+    arch : "${arch}";
+    
+    display-name: "Berkeley Database library";
+}
+
+metadata {
+    summary: "Berkeley Database library";
+    description: @"The Berkeley DB library provides key-value storage in a specific file format.";
+    
+    author-version : "5.1.25";
+    bug-tracker: "https://github.com/coapp-packages/berkeleydb/issues";
+    stability : "0";
+    licenses : {
+        sleepycat
+    };
+}
+
+compatability-policy {
+    minimum: "5.1.0.0";
+    maximum: "${OneLessThanCurrent}"; // this is the default
+    versions : { };
+}
+
+license[sleepycat] {
+    license: "..\LICENSE";
+    license-url: "http://www.opensource.org/licenses/Sleepycat";
+    license-type: "sleepycat";
+}
+
+requires {
+    package: "berkeleydb-dev-common-${package-version}-any-${Package.PublicKeyToken}";
+    package: "berkeleydb[${flavor}]-${package-version}-${Package.Architecture}-${Package.PublicKeyToken}";
+}
+
+files[libs] {
+    root: @"..\output\${flavor}\${arch}\Release";
+  
+    include: {
+        "*.lib"
+    };
+    
+    trim-path: all;
+};
+
+developer-library[zlib] {
+    libraries : {
+        libs
+    };
+}
+
+files[files-to-sign] {
+    include: {
+        libs
+    };
+}
+
+signing {
+    attributes : {
+        company="Outercurve Foundation",
+        description="${Package.PackageDetails.SummaryDescription}",
+        product-name="berkeleydb-dev",
+        product-version="${package-version}",
+        file-version="${package-version}",
+    };
+    
+    replace-signature: true; 
+    include: {
+        files-to-sign
+    };    
+}

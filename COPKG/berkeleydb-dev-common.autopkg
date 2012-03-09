@@ -1,0 +1,60 @@
+@import "version.inc" ;
+@import "outercurve.inc" ;
+
+package {
+    name: "berkeleydb-dev-common";
+    version: "${package-version}";
+    arch: any;
+    
+    display-name: "Berkeley Database dev library-common";
+}
+
+metadata {
+    bug-tracker: "https://github.com/coapp-packages/berkeley/issues";
+    stability : "0";
+    licenses : {
+        sleepycat
+    };
+}
+
+license[sleepycat] {
+    license: "..\LICENSE";
+    license-url: "http://www.opensource.org/licenses/Sleepycat";
+    license-type: "sleepycat";
+}
+
+files[headers] {
+    root: "..\\";
+    include: {
+        "*.h"
+    };
+    
+    trim-path:all;
+    
+    // ensures that all the header files end up in a subfolder called 'include'
+    destination-path:"include";
+}
+
+files[docs] {
+    root: "..\\doc\\";
+    include: {
+        "*"
+    };
+    
+    trim-path:all;
+    
+    // ensures that all the documentation files end up in a subfolder called 'docs'
+    destination-path:"docs";
+
+}
+
+// the 'name' of the developer library isn't terribly important...
+developer-library[bdb] {
+    headers: { 
+        headers
+    };
+    
+    docs: {
+        docs
+    };
+}
