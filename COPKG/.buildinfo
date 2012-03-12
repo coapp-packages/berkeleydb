@@ -295,23 +295,24 @@ package {
     uses: { release };
 
     build-command: @"
+		cd COPKG
         REM Start with the common dev package...
-        autopackage.exe COPKG\berkeleydb-dev-common.autopkg
+        autopackage.exe berkeleydb-dev-common.autopkg
         
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
                 REM Build the end-user assembly package first, then the dev package that depends on it...
-				autopackage.exe COPKG\berkeleydb.autopkg --arc=%%B --flav=%%A
+				autopackage.exe berkeleydb.autopkg --arc=%%B --flav=%%A
 			)
 		)
-		coapp -A ""%CD%\COPKG"
+		coapp -A ""%CD%""
 		coapp --force-scan -l
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
                 REM Build the end-user assembly package first, then the dev package that depends on it...
-                autopackage.exe COPKG\berkeleydb-dev.autopkg --arc=%%B --flav=%%A
+                autopackage.exe berkeleydb-dev.autopkg --arc=%%B --flav=%%A
 			)
 		)
-		coapp -R ""%CD%\COPKG"
+		coapp -R ""%CD%""
     ";
 };
