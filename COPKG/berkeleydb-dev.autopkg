@@ -51,7 +51,7 @@ files[libs] {
         "*.lib"
     };
     
-    trim-path: all;
+    trim-path:minimal;
 };
 
 developer-library[zlib] {

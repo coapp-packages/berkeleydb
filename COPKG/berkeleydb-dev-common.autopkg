@@ -33,7 +33,7 @@ files[headers] {
         "*.h"
     };
     
-    trim-path:all;
+    trim-path:minimal;
     
     // ensures that all the header files end up in a subfolder called 'include'
     destination-path:"include";
