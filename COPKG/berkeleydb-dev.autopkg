@@ -16,7 +16,8 @@ package {
 
 metadata {
     summary: "Berkeley Database library";
-    description: @"The Berkeley DB library provides key-value storage in a specific file format.";
+    description: @"The Berkeley DB library provides key-value storage in a specific file format.
+This package contains the developer libraries for the ${arch} archetecture, as built by the ${flavor} compiler.";
     
     author-version : "5.1.25";
     bug-tracker: "https://github.com/coapp-packages/berkeleydb/issues";

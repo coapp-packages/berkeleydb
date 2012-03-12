@@ -10,6 +10,10 @@ package {
 }
 
 metadata {
+    summary: "Berkeley Database dev library-common";
+    description: @"The Berkeley DB library provides key-value storage in a specific file format.
+This package contains the common header files and documentation for the developer libraries.";
+
     bug-tracker: "https://github.com/coapp-packages/berkeley/issues";
     stability : "0";
     licenses : {
