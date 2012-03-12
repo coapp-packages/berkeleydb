@@ -45,7 +45,7 @@ files[docs] {
         "**"
     };
     
-    trim-path:all;
+    trim-path:minimal;
     
     // ensures that all the documentation files end up in a subfolder called 'docs'
     destination-path:"docs";
