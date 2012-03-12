@@ -302,8 +302,16 @@ package {
 			for %%B in (${PLAT}) do (
                 REM Build the end-user assembly package first, then the dev package that depends on it...
 				autopackage.exe COPKG\berkeleydb.autopkg --arc=%%B --flav=%%A
+			)
+		)
+		coapp -A ""%CD%\COPKG"
+		coapp --force-scan -l
+		for %%A in (${COMP}) do (
+			for %%B in (${PLAT}) do (
+                REM Build the end-user assembly package first, then the dev package that depends on it...
                 autopackage.exe COPKG\berkeleydb-dev.autopkg --arc=%%B --flav=%%A
 			)
 		)
+		coapp -R ""%CD%\COPKG"
     ";
 };
