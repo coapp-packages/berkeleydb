@@ -54,29 +54,8 @@ files[libs] {
     trim-path:minimal;
 };
 
-developer-library[zlib] {
+developer-library[bdb] {
     libraries : {
         libs
     };
-}
-
-files[files-to-sign] {
-    include: {
-        libs
-    };
-}
-
-signing {
-    attributes : {
-        company="Outercurve Foundation",
-        description="${Package.PackageDetails.SummaryDescription}",
-        product-name="berkeleydb-dev",
-        product-version="${package-version}",
-        file-version="${package-version}",
-    };
-    
-    replace-signature: true; 
-    include: {
-        files-to-sign
-    };    
 }
