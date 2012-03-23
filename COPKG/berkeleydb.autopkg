@@ -64,7 +64,7 @@ compatability-policy {
     versions : { };
 }
 
-assembly[berkeleydb] {
+assembly[berkeleydb[${flavor}]] {
     include : {
         dlls
     };

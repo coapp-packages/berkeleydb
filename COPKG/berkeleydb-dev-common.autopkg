@@ -6,11 +6,11 @@ package {
     version: "${package-version}";
     arch: any;
     
-    display-name: "Berkeley Database dev library-common";
+    display-name: "Berkeley Database developer library - common files";
 }
 
 metadata {
-    summary: "Berkeley Database dev library-common";
+    summary: "Berkeley Database developer library - common files";
     description: @"The Berkeley DB library provides key-value storage in a specific file format.
 This package contains the common header files and documentation for the developer libraries.";
 
@@ -53,7 +53,7 @@ files[docs] {
 }
 
 // the 'name' of the developer library isn't terribly important...
-developer-library[bdb] {
+developer-library[berkeley] {
     headers: { 
         headers
     };

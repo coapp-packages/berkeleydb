@@ -7,15 +7,15 @@
 }
 
 package {
-    name: "berkeleydb[${flavor}]-dev";
+    name: "berkeleydb-dev[${flavor}]";
     version: "${package-version}";
     arch : "${arch}";
     
-    display-name: "Berkeley Database library";
+    display-name: "Berkeley Database developer library";
 }
 
 metadata {
-    summary: "Berkeley Database library";
+    summary: "Berkeley Database developer library";
     description: @"The Berkeley DB library provides key-value storage in a specific file format.
 This package contains the developer libraries for the ${arch} archetecture, as built by the ${flavor} compiler.";
     
@@ -54,7 +54,7 @@ files[libs] {
     trim-path:minimal;
 };
 
-developer-library[bdb] {
+developer-library[berkeleydb[${flavor}]] {
     libraries : {
         libs
     };
