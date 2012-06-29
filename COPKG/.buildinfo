@@ -1,3 +1,9 @@
+@import "version.inc";
+
+#define {
+    NewVersion : "${package-version++}";
+}
+
 #product-info  {
     product-name: "berkeleydb";
     version: "${package-version}";
@@ -295,22 +301,37 @@ package {
     uses: { release };
 
     build-command: @"
+        if ""${noversion}"" neq ""true"" ptk update-version
 		cd COPKG
         REM Start with the common dev package...
-        autopackage.exe berkeleydb-dev-common.autopkg
+        autopackage.exe berkeleydb-dev-common.autopkg || goto failed
         
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
                 REM Build the end-user assembly package first, then the dev package that depends on it...
-				autopackage.exe berkeleydb.autopkg --arc=%%B --flav=%%A
+				autopackage.exe berkeleydb.autopkg --arc=%%B --flav=%%A || goto failed
 			)
 		)
 
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
                 REM Build the end-user assembly package first, then the dev package that depends on it...
-                autopackage.exe berkeleydb-dev.autopkg --arc=%%B --flav=%%A
+                autopackage.exe berkeleydb-dev.autopkg --arc=%%B --flav=%%A || goto failed
 			)
 		)
     ";
 };
+
+update-version {
+    default : false;
+    
+    build-command : @"
+        REM auto-increment version.inc file...
+        
+        pushd COPKG
+        setlocal EnableDelayedExpansion
+        set VERSTRING=#define { package-version: ${NewVersion}; }
+        echo !VERSTRING! > version.inc
+        popd
+    ";
+}
