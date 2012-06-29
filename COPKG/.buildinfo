@@ -235,7 +235,7 @@ release {
 				if ""%%A""==""vc8"" (
 					ptk %%B --COMP=%%A --PLAT=x86 --nologo || goto failed
 				) else (
-					ptk %%B --COMP=%%A --nologo || goto failed
+					ptk %%B --COMP=%%A --PLAT=%%B --nologo || goto failed
 				)
 			)
 		)
@@ -256,7 +256,7 @@ debug {
 				if ""%%A""==""vc8"" (
 					ptk %%B --COMP=%%A --PLAT=x86 --nologo || goto failed
 				) else (
-					ptk %%B --COMP=%%A --nologo || goto failed
+					ptk %%B --COMP=%%A --PLAT=%%B --nologo || goto failed
 				)
 			)
 		)
