@@ -233,9 +233,9 @@ release {
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
 				if ""%%A""==""vc8"" (
-					ptk %%B --COMP=%%A --PLAT=x86 --nologo
+					ptk %%B --COMP=%%A --PLAT=x86 --nologo || goto failed
 				) else (
-					ptk %%B --COMP=%%A --nologo
+					ptk %%B --COMP=%%A --nologo || goto failed
 				)
 			)
 		)
@@ -254,9 +254,9 @@ debug {
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
 				if ""%%A""==""vc8"" (
-					ptk %%B --COMP=%%A --PLAT=x86 --nologo
+					ptk %%B --COMP=%%A --PLAT=x86 --nologo || goto failed
 				) else (
-					ptk %%B --COMP=%%A --nologo
+					ptk %%B --COMP=%%A --nologo || goto failed
 				)
 			)
 		)
@@ -274,7 +274,7 @@ test {
     build-command: @"
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
-				ptk common-test --outdir=.\output\%%A\%%B\Release\ --nologo
+				ptk common-test --outdir=.\output\%%A\%%B\Release\ --nologo || goto failed
 			)
 		)
     ";
