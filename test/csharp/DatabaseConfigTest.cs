@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -18,11 +18,17 @@ namespace CsharpAPITest
 	[TestFixture]
 	public class DatabaseConfigTest : CSharpTestFixture
 	{
+
+		[TestFixtureSetUp]
+		public virtual void SetUpTestFixture() {
+			testFixtureName = "DatabaseConfigTest";
+			base.SetUpTestfixture();
+		}
+
 		[Test]
 		virtual public void TestConfigWithoutEnv()
 		{
-			string testName = "TestConfigWithoutEnv";
-			string testFixtureName = "DatabaseConfigTest";
+			testName = "TestConfigWithoutEnv";
 			SetUpTest(false);
 			XmlElement xmlElem = Configuration.TestSetUp(
 			    testFixtureName, testName);

@@ -9,11 +9,15 @@
 
 package SQLite;
 
-import java.sql.*;
-import java.util.*;
-import java.io.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Enumeration;
+import java.util.Vector;
 
-public class Benchmark {
+public abstract class Benchmark {
 
     /* the tps scaling factor: here it is 1 */
     public static int tps = 1;
@@ -51,8 +55,8 @@ public class Benchmark {
      *  runs one TPC BM B transaction
      */
 
-    public static void main(String[] args) {
-	String DriverName = "SQLite.JDBCDriver";
+    public void run(String[] args) {
+        String DriverName = "";
 	String DBUrl = "";
 	String DBUser = "";
 	String DBPassword = "";
@@ -103,13 +107,19 @@ public class Benchmark {
 
 	if (DriverName.length() == 0 || DBUrl.length() == 0) {
 	    System.out.println("JDBC based benchmark program\n\n" +
-			       "usage:\n\njava SQLite.Benchmark " +
+			       "JRE usage:\n\njava SQLite.BenchmarkDriver " +
 			       "-url [url_to_db] \\\n    " +
 			       "[-user [username]] " +
 			       "[-password [password]] " +
 			       "[-driver [driver_class_name]] \\\n    " +
 			       "[-v] [-init] [-tpc N] [-tps N] " +
-			       "[-clients N]");
+			       "[-clients N]\n");
+	    System.out.println("OJEC usage:\n\ncvm SQLite.BenchmarkDataSource " +
+			       "[-user [username]] " +
+			       "[-password [password]] " +
+			       "[-driver [driver_class_name]] \\\n    " +
+			       "[-v] [-init] [-tpc N] [-tps N] " +
+			       "[-clients N]\n");
 	    System.out.println();
 	    System.out.println("-v          verbose mode");
 	    System.out.println("-init       initialize the tables");
@@ -133,17 +143,14 @@ public class Benchmark {
 	System.out.println();
 
 	try {
-	    Class.forName(DriverName);
-
-	    Benchmark Me =
-		new Benchmark(DBUrl, DBUser, DBPassword, initialize_dataset);
+	    benchmark(DBUrl, DBUser, DBPassword, initialize_dataset);
 	} catch (java.lang.Exception e) {
 	    System.out.println(e.getMessage());
 	    e.printStackTrace();
 	}
     }
 
-    public Benchmark(String url, String user, String password, boolean init) {
+    public void benchmark(String url, String user, String password, boolean init) {
 	Vector vClient = new Vector();
 	Thread Client = null;
 	Enumeration en = null;
@@ -558,18 +565,8 @@ public class Benchmark {
 	return (getRandomInt(min, max));
     }
 
-    public static Connection connect(String DBUrl, String DBUser,
-				     String DBPassword) {
-	try {
-	    Connection conn =
-		DriverManager.getConnection(DBUrl, DBUser, DBPassword);
-	    return conn;
-	} catch (java.lang.Exception e) {
-	    System.out.println(e.getMessage());
-	    e.printStackTrace();
-	}
-	return null;
-    }
+    public abstract Connection connect(String DBUrl, String DBUser,
+				     String DBPassword);
 
     public static void connectClose(Connection c) {
 	if (c == null) {
@@ -601,7 +598,7 @@ class BenchmarkThread extends Thread {
 			   Benchmark b) {
 	bench = b;
 	ntrans = number_of_txns;
-	Conn = Benchmark.connect(url, user, password);
+	Conn = b.connect(url, user, password);
 	if (Conn == null) {
 	    return;
 	}
@@ -725,7 +722,7 @@ class BenchmarkThread extends Thread {
 		Query += " SET Abalance = Abalance + " + delta;
 		Query += " WHERE Aid = " + aid;
 
-		int res = Stmt.executeUpdate(Query);
+		Stmt.executeUpdate(Query);
 		Stmt.clearWarnings();
 
 		Query = "SELECT Abalance";

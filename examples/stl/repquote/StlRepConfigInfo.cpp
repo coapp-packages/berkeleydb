@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2001, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2001, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -15,9 +15,10 @@ RepConfigInfo::RepConfigInfo()
 	start_policy = DB_REP_ELECTION;
 	home = "TESTDIR";
 	got_listen_address = false;
-	totalsites = 0;
+	nrsites = 0;
 	priority = 100;
 	verbose = false;
+	this_host.creator = false;
 	other_hosts = NULL;
 	ack_policy = DB_REPMGR_ACKS_QUORUM;
 	bulk = false;
@@ -53,4 +54,5 @@ void RepConfigInfo::addOtherHost(char* host, int port, bool peer)
 		newinfo->next = other_hosts;
 		other_hosts = newinfo;
 	}
+	nrsites++;
 }

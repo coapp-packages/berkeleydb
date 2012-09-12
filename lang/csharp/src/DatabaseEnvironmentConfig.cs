@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -291,6 +291,23 @@ namespace BerkeleyDB {
         }
 
         /// <summary>
+        /// The path of a directory to be used as the location to store
+        /// the persistent metadata.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// By default, metadata is stored in the environment home directory.
+        /// See Berkeley DB File Naming in the Programmer's Reference Guide for
+        /// more information.
+        /// </para>
+        /// <para>
+        /// When used in a replicated application, the metadata directory must
+        /// be the same location for all sites within a replication group.
+        /// </para> 
+        /// </remarks>
+        public string MetadataDir;
+
+        /// <summary>
         /// The path of a directory to be used as the location of temporary
         /// files.
         /// </summary>
@@ -357,6 +374,64 @@ namespace BerkeleyDB {
             set {
                 threadCntIsSet = true;
                 threadCnt = value;
+            }
+        }
+
+        private uint _initthreadcount;
+        internal bool initThreadCountIsSet;
+        /// <summary>
+        /// The initial number of concurrent threads catered for by the
+        /// Berkeley DB environment
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This value is used by <see cref="DatabaseEnvironment.Open"/> to
+        /// force Berkeley DB to allocate a certain number of thread
+        /// objects when the environment is created. This can be useful if an
+        /// application uses a large number of thread objects, and
+        /// experiences performance issues with the default dynamic allocation
+        /// algorithm.
+        /// </para>
+        /// <para>
+        /// If the database environment already exists when
+        /// <see cref="DatabaseEnvironment.Open"/> is called, the value of
+        /// InitLockers will be ignored.
+        /// </para>
+        /// </remarks>
+        public uint InitThreadCount {
+            get { return _initthreadcount; }
+            set {
+                initThreadCountIsSet = true;
+                _initthreadcount = value;
+            }
+        }
+
+        private uint _inittxncount;
+        internal bool initTxnCountIsSet;
+        /// <summary>
+        /// The initial number of transactions catered for by the Berkeley DB
+        /// environment
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This value is used by <see cref="DatabaseEnvironment.Open"/> to
+        /// force Berkeley DB to allocate a certain number of transaction
+        /// objects when the environment is created. This can be useful if an
+        /// application uses a large number of transaction objects, and
+        /// experiences performance issues with the default dynamic allocation
+        /// algorithm.
+        /// </para>
+        /// <para>
+        /// If the database environment already exists when
+        /// <see cref="DatabaseEnvironment.Open"/> is called, the value of
+        /// InitLockers will be ignored.
+        /// </para>
+        /// </remarks>
+        public uint InitTxnCount {
+            get { return _inittxncount; }
+            set {
+                initTxnCountIsSet = true;
+                _inittxncount = value;
             }
         }
 

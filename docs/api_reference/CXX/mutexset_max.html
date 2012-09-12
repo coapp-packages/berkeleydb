@@ -8,17 +8,20 @@
     <meta name="generator" content="DocBook XSL Stylesheets V1.73.2" />
     <link rel="start" href="index.html" title="Berkeley DB C++ API Reference" />
     <link rel="up" href="mutex.html" title="Chapter 10.  Mutex Methods" />
-    <link rel="prev" href="mutexset_increment.html" title="DbEnv::mutex_set_increment()" />
+    <link rel="prev" href="mutexset_init.html" title="DbEnv::mutex_set_init()" />
     <link rel="next" href="mutexset_tas_spins.html" title="DbEnv::mutex_set_tas_spins()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DbEnv::mutex_set_max()</th>
         </tr>
         <tr>
-          <td width="20%" align="left"><a accesskey="p" href="mutexset_increment.html">Prev</a> </td>
+          <td width="20%" align="left"><a accesskey="p" href="mutexset_init.html">Prev</a> </td>
           <th width="60%" align="center">Chapter 10. 
                 Mutex Methods 
         </th>
@@ -40,29 +43,33 @@
 int
 DbEnv::mutex_set_max(u_int32_t max); </pre>
       <p>
-        Configure the total number of mutexes to allocate.
+        Configure the total number of mutexes to allocate. This method is
+        deprecated. The maximum size of the mutex region is now inferred by
+        the sizes of the other memory structures, and so this method is no
+        longer needed. For example, the cache requires one mutex per page
+        in the cache. When you specify the cache size, DB assumes a
+        page size of 4K and allocates mutexes accordingly. If your page
+        size is different than 4K, you indicate this using
+        <a class="xref" href="envset_mp_pagesize.html" title="DbEnv::set_mp_pagesize()">DbEnv::set_mp_pagesize()</a>. 
+        DB will then allocate the proper number of mutexes based on this new page size.
     </p>
       <p>
-         Berkeley DB allocates a default number of mutexes based on the initial
-         configuration of the database environment.  That default calculation
-         may be too small if the application has an unusual need for mutexes
-         (for example, if the application opens an unexpectedly large number of
-         databases) or too large (if the application is trying to minimize its
-         memory footprint).  The <code class="methodname">DbEnv::mutex_set_max()</code> method is used to
-         specify an absolute number of mutexes to allocate.
+        You can use this method to override DB's mutex calculation, but
+        it is not recommended to do so. 
     </p>
       <p>
          Calling the <code class="methodname">DbEnv::mutex_set_max()</code> method discards any value
-         previously set using the <code class="methodname">DbEnv::mutex_set_increment()</code> method.
+         previously set using the 
+         <a class="xref" href="mutexset_increment.html" title="DbEnv::mutex_set_increment()">DbEnv::mutex_set_increment()</a> method.
     </p>
       <p>
          The database environment's total number of mutexes may also be
-         configured using the environment's <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file.  The
-         syntax of the entry in that file is a single line with the string
+         configured using the environment's <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file. The syntax of
+         the entry in that file is a single line with the string
          "mutex_set_max", one or more whitespace characters, and the total
-         number of mutexes. Because the <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file is
-         read when the database environment is opened, it will silently
-         overrule configuration done before that time.
+         number of mutexes. Because the <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file is read when the
+         database environment is opened, it will silently overrule
+         configuration done before that time.
     </p>
       <p>
          The <code class="methodname">DbEnv::mutex_set_max()</code> method configures a database environment,
@@ -89,7 +96,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3533555"></a>Parameters</h3>
+              <h3 class="title"><a id="idp3879752"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -97,7 +104,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3533566"></a>max</h4>
+                <h4 class="title"><a id="idp3879104"></a>max</h4>
               </div>
             </div>
           </div>
@@ -111,7 +118,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3533387"></a>Errors</h3>
+              <h3 class="title"><a id="idp3871464"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -129,7 +136,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3533723"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp3890240"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -142,7 +149,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3533701"></a>Class</h3>
+              <h3 class="title"><a id="idp3888944"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -154,7 +161,7 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3533624"></a>See Also</h3>
+              <h3 class="title"><a id="idp3884192"></a>See Also</h3>
             </div>
           </div>
         </div>
@@ -167,14 +174,14 @@ DbEnv::mutex_set_max(u_int32_t max); </pre>
       <hr />
       <table width="100%" summary="Navigation footer">
         <tr>
-          <td width="40%" align="left"><a accesskey="p" href="mutexset_increment.html">Prev</a> </td>
+          <td width="40%" align="left"><a accesskey="p" href="mutexset_init.html">Prev</a> </td>
           <td width="20%" align="center">
             <a accesskey="u" href="mutex.html">Up</a>
           </td>
           <td width="40%" align="right"> <a accesskey="n" href="mutexset_tas_spins.html">Next</a></td>
         </tr>
         <tr>
-          <td width="40%" align="left" valign="top">DbEnv::mutex_set_increment() </td>
+          <td width="40%" align="left" valign="top">DbEnv::mutex_set_init() </td>
           <td width="20%" align="center">
             <a accesskey="h" href="index.html">Home</a>
           </td>

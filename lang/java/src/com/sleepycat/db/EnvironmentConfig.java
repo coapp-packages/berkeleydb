@@ -1,7 +1,8 @@
+
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2002, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2002, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -10,7 +11,7 @@ package com.sleepycat.db;
 
 import com.sleepycat.db.internal.DbConstants;
 import com.sleepycat.db.internal.DbEnv;
-import com.sleepycat.db.ReplicationHostAddress;
+import com.sleepycat.db.internal.DbSite;
 
 /**
 Specifies the attributes of an environment.
@@ -77,6 +78,10 @@ public class EnvironmentConfig implements Cloneable {
 
     /* Parameters */
     private int mode = 0644;
+    private int backup_read_count = 0;
+    private int backup_read_sleep = 0;
+    private int backup_size = 0;
+    private boolean backup_write_direct = false;
     private int cacheCount = 0;
     private long cacheSize = 0L;
     private long cacheMax = 0L;
@@ -88,6 +93,8 @@ public class EnvironmentConfig implements Cloneable {
     private java.io.OutputStream messageStream = null;
     private byte[][] lockConflicts = null;
     private LockDetectMode lockDetectMode = LockDetectMode.NONE;
+    private int initMutexes = 0;
+    private int lockTableSize = 0;
     private int maxLocks = 0;
     private int maxLockers = 0;
     private int maxLockObjects = 0;
@@ -100,6 +107,7 @@ public class EnvironmentConfig implements Cloneable {
     private int maxOpenFiles = 0;
     private int maxWrite = 0;
     private long maxWriteSleep = 0L;
+    private java.io.File metadataDir = null;
     private int mutexAlignment = 0;
     private int mutexIncrement = 0;
     private int mutexTestAndSetSpins = 0;
@@ -108,6 +116,7 @@ public class EnvironmentConfig implements Cloneable {
     private int mpTableSize = 0;
     private int partitionLocks = 0;
     private String password = null;
+    private long regionMemoryMax = 0L;
     private int replicationClockskewFast = 0;
     private int replicationClockskewSlow = 0;
     private long replicationLimit = 0L;
@@ -122,9 +131,16 @@ public class EnvironmentConfig implements Cloneable {
     private java.util.Date txnTimestamp = null;
     private java.io.File temporaryDirectory = null;
     private ReplicationManagerAckPolicy repmgrAckPolicy =
-        ReplicationManagerAckPolicy.ALL;
-    private ReplicationHostAddress repmgrLocalSiteAddr = null;
-    private java.util.Map repmgrRemoteSites = new java.util.HashMap();
+        ReplicationManagerAckPolicy.QUORUM;
+    private java.util.Vector repmgrSitesConfig = new java.util.Vector();
+
+    /* Initial region resource allocation. */
+    private int initResourceLocks = 0;
+    private int initResourceLockObjects = 0;
+    private int initResourceLockers = 0;
+    private int initResourceLogIds = 0;
+    private int initResourceTransactions = 0;
+    private int initResourceThreads = 0;
 
     /* Open flags */
     private boolean allowCreate = false;
@@ -170,6 +186,7 @@ public class EnvironmentConfig implements Cloneable {
     private boolean yieldCPU = false;
 
     /* Verbose Flags */
+    private boolean verboseBackup = false;
     private boolean verboseDeadlock = false;
     private boolean verboseFileops = false;
     private boolean verboseFileopsAll = false;
@@ -188,6 +205,7 @@ public class EnvironmentConfig implements Cloneable {
     private boolean verboseWaitsFor = false;
 
     /* Callbacks */
+    private BackupHandler backupHandler = null;
     private ErrorHandler errorHandler = null;
     private FeedbackHandler feedbackHandler = null;
     private LogRecordHandler logRecordHandler = null;
@@ -773,15 +791,178 @@ The application-specified OutputStream for error messages.
     }
 
     /**
-Return the an OutputStream for displaying error messages.
+Return the OutputStream for displaying error messages.
 <p>
 This method may be called at any time during the life of the application.
 <p>
 @return
-The an OutputStream for displaying error messages.
+The OutputStream for displaying error messages.
     */
     public java.io.OutputStream getErrorStream() {
         return errorStream;
+    }
+
+    /**
+Return the number of pages to read before pausing during the hot backup.
+<p>
+@return
+The number of pages to read before pausing.
+    */
+    public int getBackupReadCount() {
+        return this.backup_read_count;
+    }
+
+    /**
+Configures the number of pages to read during a hot backup before pausing. 
+<p>
+Increasing this value increases the amount of I/O the backup process
+performs for any given time interval. If your application is already
+heavily I/O bound, setting this value to a lower number may help to improve
+your overall data throughput by reducing the I/O demands placed on your
+system. By default, all pages are read without a pause.
+<p>
+This method configures the behavior of the
+{@link com.sleepycat.db.Environment#backup Environment.backup}
+and 
+{@link com.sleepycat.db.Environment#backupDatabase Environment.backupDatabase}
+methods. It may be called at any time during the life of the application.
+<p>
+@param count
+The number of pages to read before pausing.
+    */
+    public void setBackupReadCount(int count) {
+        this.backup_read_count = count;
+    }
+
+    /**
+Return the number of microseconds to sleep between batches of reads during
+a hot backup.
+<p>
+@return
+The number of microseconds to sleep.
+    */
+    public int getBackupReadSleep() {
+        return this.backup_read_sleep;
+    }
+
+    /**
+Configures the number of microseconds to sleep between batches of reads during
+a hot backup.
+<p>
+Increasing this value decreases the amount of I/O the backup process
+performs for any given time interval. If your application is already
+heavily I/O bound, setting this value to a higher number may help to
+improve your overall data throughput by reducing the I/O demands placed on
+your system. 
+<p>
+This method configures the behavior of the
+{@link com.sleepycat.db.Environment#backup Environment.backup}
+and 
+{@link com.sleepycat.db.Environment#backupDatabase Environment.backupDatabase}
+methods. It may be called at any time during the life of the application.
+<p>
+@param sleep
+The number of microseconds to sleep.
+    */
+    public void setBackupReadSleep(int sleep) {
+        this.backup_read_sleep = sleep;
+    }
+
+    /**
+Return the size of the buffer, in megabytes, to read from the database
+during a hot backup.
+<p>
+@return
+The size of the buffer in megabytes.
+    */
+    public int getBackupSize() {
+        return this.backup_size;
+    }
+
+    /**
+Configures the size of the buffer, in bytes, to read from the database
+during a hot backup.
+<p>
+This method configures the behavior of the
+{@link com.sleepycat.db.Environment#backup Environment.backup}
+and 
+{@link com.sleepycat.db.Environment#backupDatabase Environment.backupDatabase}
+methods. It may be called at any time during the life of the application.
+<p>
+@param size
+The size of the buffer in bytes. Default is 1 megabyte.
+    */
+    public void setBackupSize(int size) {
+        this.backup_size = size;
+    }
+
+    /**
+Return return true if direct I/O is used when writing pages to the disk
+during a hot backup.
+<p>
+@return
+The environment's current direct I/O for hot backup setting.
+    */
+    public boolean getBackupWriteDirect() {
+        return this.backup_write_direct;
+    }
+
+    /**
+Configures whether direct I/O is used when writing pages to the disk during a
+hot backup.
+<p>
+For some environments, direct I/O can provide faster write throughput, but
+usually it is slower because the OS buffer pool offers asynchronous
+activity. 
+<p>
+This method configures the behavior of the
+{@link com.sleepycat.db.Environment#backup Environment.backup}
+and 
+{@link com.sleepycat.db.Environment#backupDatabase Environment.backupDatabase}
+methods. It may be called at any time during the life of the application.
+<p>
+@param writeDirect
+If true, use direct I/O when writing database pages; if false, do not use 
+direct I/O. 
+    */
+    public void setBackupWriteDirect(boolean writeDirect) {
+        this.backup_write_direct = writeDirect;
+    }
+
+    /**
+Sets the {@link com.sleepycat.db.BackupHandler BackupHandler}
+interface to be used when performing hot backups.
+<p>
+The {@link com.sleepycat.db.BackupHandler BackupHandler} interface is used
+to override the default behavior used by the 
+{@link com.sleepycat.db.Environment#backup Environment.backup}
+and 
+{@link com.sleepycat.db.Environment#backupDatabase Environment.backupDatabase}
+methods. 
+<p>
+This method may be called at any time during the life of the application.
+<p>
+This method configures operations performed using the Environment handle,
+not all operations performed on the underlying database environment. 
+<p>
+@param backupHandler
+The {@link com.sleepycat.db.BackupHandler BackupHandler}
+interface to use when performing hot backups.
+    */
+    public void setBackupHandler(final BackupHandler backupHandler) {
+        this.backupHandler = backupHandler;
+    }
+
+    /**
+Return the {@link com.sleepycat.db.BackupHandler BackupHandler}
+used to override default hot backup behavior.
+<p>
+@return
+The {@link com.sleepycat.db.BackupHandler BackupHandler}
+interface to use when performing hot backups.
+    */
+    public BackupHandler getBackupHandler() {
+        return backupHandler;
     }
 
     /**
@@ -1396,6 +1577,105 @@ The handler for application-specific log records.
         return logZero;
     }
 
+    /**
+    Return the inital memory configuration for a region resource.
+    <p>
+    @param resource
+    The resource type to get initial sizing for.
+    <p>
+    @return
+    The initial amount of memory allocated for the requested resource.
+    */
+    public int getRegionMemoryInitialSize(RegionResourceType resource) {
+        switch(resource.getFlag()) {
+            case DbConstants.DB_MEM_LOCK:
+                return initResourceLocks;
+            case DbConstants.DB_MEM_LOCKOBJECT:
+                return initResourceLockObjects;
+            case DbConstants.DB_MEM_LOCKER:
+                return initResourceLockers;
+            case DbConstants.DB_MEM_LOGID:
+                return initResourceLogIds;
+            case DbConstants.DB_MEM_TRANSACTION:
+                return initResourceTransactions;
+            case DbConstants.DB_MEM_THREAD:
+                return initResourceThreads;
+        }
+        return (0);
+    }
+
+    /**
+    Assign an initial count for a particular resource within the shared region
+    of Berkeley DB. The shared region is used to hold resources that are
+    shared amongst processes in Berkeley DB.
+    The default values are generally satisfactory.
+    <p>
+    @param resource
+    The resource type to configure.
+    @param count
+    The initial number of objects of a particular type to allocate.
+    */
+    public void setRegionMemoryInitialSize(
+        RegionResourceType resource, int count) {
+        switch(resource.getFlag()) {
+            case DbConstants.DB_MEM_LOCK:
+                initResourceLocks = count;
+                break;
+            case DbConstants.DB_MEM_LOCKOBJECT:
+                initResourceLockObjects = count;
+                break;
+            case DbConstants.DB_MEM_LOCKER:
+                initResourceLockers = count;
+                break;
+            case DbConstants.DB_MEM_LOGID:
+                initResourceLogIds = count;
+                break;
+            case DbConstants.DB_MEM_TRANSACTION:
+                initResourceTransactions = count;
+                break;
+            case DbConstants.DB_MEM_THREAD:
+                initResourceThreads = count;
+                break;
+        }
+    }
+
+    /**
+    Return the maximum amount of memory that can be used by shared structures
+    in the main environment region.
+    <p>
+    @return
+    The maximum amount of memory that could be used by the main region.
+    */
+    public long getRegionMemoryMax() {
+        return regionMemoryMax;
+    }
+
+    /**
+    This method sets the maximum amount of memory to be used by shared
+    structures in the main environment region. These are the structures
+    other than mutexes and the page cache (memory pool). If the region files
+    are in memory mapped files, or if DB_PRIVATE is specified, the memory
+    specified by this method is not allocated completely at startup. As
+    memory is needed, the shared region will be extended or, in the case of
+    DB_PRIVATE, more memory will be allocated using the system malloc call.
+    For memory mapped files, a mapped region will be allocated to this size
+    but the underlying file will only be allocated sufficient memory to hold
+    the initial allocation of shared memory structures as set by
+    {@link com.sleepycat.db.EnvironmentConfig#setRegionMemoryInitialSize EnvironmentConfig.setRegionMemoryInitialSize}.
+    <p>
+    If no memory maximum is specified then it is calculated from defaults,
+    initial settings or (deprecated) maximum settings of the various shared
+    structures. In the case of environments created with DB_PRIVATE, no
+    maximum need be set and the shared structure allocation will grow as
+    needed until the process memory limit is exhausted. 
+    <p>
+    @param regionMemoryMax
+    The total amount of memory that can be used by the main region.
+    */
+    public void setRegionMemoryMax(final long regionMemoryMax) {
+        this.regionMemoryMax = regionMemoryMax;
+    }
+
    /** 
     If set, store internal replication information in memory only. By default,
     replication creates files in the environment home directory to preserve
@@ -1448,42 +1728,17 @@ The handler for application-specific log records.
         return repmgrAckPolicy;
     }
 
-    /**
-    Set the address of the local (this) site in a replication group.
-    <p>
-    @param repmgrLocalSiteAddr
-    The address of the local site.
-    */
-    public void setReplicationManagerLocalSite(
-        final ReplicationHostAddress repmgrLocalSiteAddr)
-    {
-        this.repmgrLocalSiteAddr = repmgrLocalSiteAddr;
-    }
-
-    /**
-    Get the address of the local (this) site in a replication group.
-    <p>
-    @return
-    The address of the local site.
-    */
-    public ReplicationHostAddress getReplicationManagerLocalSite()
-    {
-        return repmgrLocalSiteAddr;
-    }
-
     /** 
-    Add a remote site to a replication group.
+    Configure a site in a replication group. This could be called more than once,
+    to set local site and remote sites.
     <p>
-    @param repmgrRemoteAddr
-    The address of the remote site
-    @param isPeer
-    Whether the remote site is the local site's peer.
+    @param repmgrSiteConfig
+    The configuration of a site site
     */
-    public void replicationManagerAddRemoteSite(
-        final ReplicationHostAddress repmgrRemoteAddr, boolean isPeer) 
-        throws DatabaseException
+    public void addReplicationManagerSite(
+        final ReplicationManagerSiteConfig repmgrSiteConfig)
     {
-        this.repmgrRemoteSites.put(repmgrRemoteAddr, new Boolean(isPeer));
+        this.repmgrSitesConfig.add(repmgrSiteConfig);
     }
 
     /**
@@ -1531,15 +1786,43 @@ information specified to this method will be ignored.
     }
 
     /**
-Return the maximum number of locks.
-<p>
-This method may be called at any time during the life of the application.
-<p>
-@return
-The maximum number of locks.
+    Return the maximum number of locks.
+    <p>
+    This method may be called at any time during the life of the application.
+    <p>
+    @return
+    The maximum number of locks.
     */
     public int getMaxLocks() {
         return maxLocks;
+    }
+
+    /**
+    Set the size for the hash table that contains references to locks. It's
+    important to make this large enough so that there is not increased
+    contention in the system as it grows.
+    <p>
+    This method may not be called after the environment has been opened.
+    If joining an existing database environment, any information specified
+    to this method will be ignored.
+    <p>
+    @param lockTableSize
+    The size of the hash table to allocate.
+    */
+    public void setLockTableSize(final int lockTableSize) {
+        this.lockTableSize = lockTableSize;
+    }
+
+    /**
+    Return the lock hash table size.
+    <p>
+    This method may be called at any time during the life of the application.
+    <p>
+    @return
+    The lock hash table size.
+    */
+    public int getLockTableSize() {
+        return lockTableSize;
     }
 
     /**
@@ -1971,7 +2254,7 @@ The application-specified OutputStream for informational messages.
     }
 
     /**
-Return the an OutputStream for displaying informational messages.
+Return the OutputStream for displaying informational messages.
 <p>
 This method may be called at any time during the life of the application.
 <p>
@@ -1980,6 +2263,26 @@ The an OutputStream for displaying informational messages.
     */
     public java.io.OutputStream getMessageStream() {
         return messageStream;
+    }
+
+    /**
+    Set the path of a directory to be used as the location to store the
+    persistent metadata files.
+    @param dir
+    The path of metadata directory.
+    */
+    public void setMetadataDir(java.io.File dir) {
+        metadataDir = dir;
+    }
+
+    /**
+    Return the path of a directory to be used as the location to store the
+    persistent metadata.
+    @return
+    The the path of metadata directory.
+    */
+    public java.io.File getMetadataDir() {
+        return metadataDir;
     }
 
     /**
@@ -2023,22 +2326,48 @@ The an OutputStream for displaying informational messages.
     }
 
 /**
+Sets the page size used to allocate the hash table and the number of mutexes
+expected to be needed by the buffer pool.
+<p>
+This method may be called only before the environment is opened.
+<p>
+@param mpPageSize
+The expected page size to use. Generally, it is set to the expected average
+page size for all the data pages that are in the buffer pool. 
  */
     public void setCachePageSize(final int mpPageSize) {
         this.mpPageSize = mpPageSize;
     }
 /**
+Returns the environment's current page size setting.
+<p>
+@return
+The current setting for the environment's expected page size use.
  */
     public int getCachePageSize() {
         return mpPageSize;
     }
 
 /**
+Overrides the calculated hash table size.
+<p>
+The table size is then adjusted to a nearby prime number to enhance the 
+hashing algorithm.
+<p>
+This method may be called only before the environment is opened.
+<p>
+@param mpTableSize
+Specifies the size of the buffer pool hash table, which is then internally
+adjusted to a nearby prime number.
  */
     public void setCacheTableSize(final int mpTableSize) {
         this.mpTableSize = mpTableSize;
     }
 /**
+Returns the environment's current table size setting.
+<p>
+@return
+The current setting for the environment's table size.
  */
     public int getCacheTableSize() {
         return mpTableSize;
@@ -2303,12 +2632,11 @@ The function to be called if the database environment panics.
     than a single process.  Second, mutexes are only configured to work
     between threads.
     <p>
-    This flag should not be specified if more than a single process is
-    accessing the environment because it is likely to cause database
-    corruption and unpredictable behavior.  For example, if both a
-    server application and the a Berkeley DB utility are expected to
-    access the environment, the database environment should not be
-    configured as private.
+    Use of this flag means that multiple handles cannot be simultaneously
+    opened for the environment, even within the same process.  For example,
+    if both a server application and a Berkeley DB utility are expected to
+    access the environment at the same time, then do not configure the
+    database environment as private.
     <p>
     @param isPrivate
     If true, configure the database environment to only be accessed by
@@ -2339,10 +2667,11 @@ True if the database environment is configured to only be accessed
     skew.  The user must also configure leases via the 
     {@link Environment#setReplicationConfig} method.  Additionally, the user must
     also set the master lease timeout via the
-    {@link Environment#setReplicationTimeout} method and the number of sites in
-    the replication group via the (@link #setReplicationNumSites} method.  These
-    methods may be called in any order.  For a description of the clock skew
-    values, see <a href="{@docRoot}/../programmer_reference/rep_clock_skew.html">Clock skew</a>.
+    {@link Environment#setReplicationTimeout} method and, if using the base
+    replication API, the number of sites in the replication group via the
+    (@link #setReplicationNumSites} method.  These methods may be called in
+    any order.  For a description of the clock skew values,
+    see <a href="{@docRoot}/../programmer_reference/rep_clock_skew.html">Clock skew</a>.
     For a description of master leases, see
     <a href="{@docRoot}/../programmer_reference/rep_lease.html">Master leases</a>.
     <p>
@@ -2941,6 +3270,47 @@ The number of additional mutexes to allocate.
     }
 
     /**
+    Set the number of mutexes to allocate when an environment is created.
+    <p>
+    Berkeley DB allocates a default number of mutexes based on the initial
+    configuration of the database environment.  That default calculation may
+    be too small if the application has an unusual need for mutexes (for
+    example, if the application opens an unexpectedly large number of
+    databases) or too large (if the application is trying to minimize its
+    memory footprint).  This method configure the number of initial
+    mutexes to allocate.
+    <p>
+    Calling this method discards any value previously
+    set using the {@link #setInitialMutexes} method.
+    <p>
+    This method configures a database environment, including all threads
+    of control accessing the database environment, not only the operations
+    performed using a specified {@link com.sleepycat.db.Environment Environment} handle.
+    <p>
+    This method may not be called after the environment has been opened.
+    If joining an existing database environment, any information specified 
+    to this method will be ignored.
+    <p>
+    @param initMutexes
+    The number of mutexes allocated when an environment is created.
+    **/
+    public void setInitialMutexes(final int initMutexes) {
+        this.initMutexes = initMutexes;
+    }
+
+    /**
+    Return the number of mutexes allocated when an environment is created.
+    <p>
+    This method may be called at any time during the life of the application.
+    <p>
+    @return
+    The number of mutexes allocated when an environment is created.
+    **/
+    public int getInitialMutexes() {
+        return initMutexes;
+    }
+
+    /**
     Set the total number of mutexes to allocate.
     <p>
     Berkeley DB allocates a default number of mutexes based on the initial
@@ -3025,20 +3395,32 @@ The test-and-set spin count.
     }
 
     /**
-    Set the total number of sites in the replication group.
+    Set the total number of sites the replication group is configured for.
     <p>
+    This method cannot be called by replication manager applications.
+    <p>
+    Note that this value is not automatically populated via a call to
+    {@link com.sleepycat.db.Environment#getConfig}, explicit initialization is required for all objects.
     @param replicationNumSites
     The total number of sites in the replication group.
     */
     public void setReplicationNumSites(final int replicationNumSites) {
+        if (replicationNumSites == 0)
+		throw new java.lang.IllegalArgumentException(
+		    "Can't set the number of sites to 0");
         this.replicationNumSites = replicationNumSites;
     }
 
     /**
-    Get the total number of sites in the replication group.
+    Get the total number of sites configured in this EnvironmentConfig object.
     <p>
+    This method cannot be called by replication manager applications.
+    <p>
+    Note that most applications will be looking for the {@link com.sleepycat.db.Environment#getReplicationNumSites} method
+    which returns the number of sites in the replication group as defined by
+    the underlying environment object.
     @return
-    The total number of sites in the replication group.
+    The total number of sites configured in the EnvironmentConfig object.
     */
     public int getReplicationNumSites() {
         return replicationNumSites;
@@ -3557,6 +3939,9 @@ True if the database environment is configured to accept information
     public void setVerbose(final VerboseConfig flag, boolean enable) {
         int iflag = flag.getInternalFlag();
         switch (iflag) {
+        case DbConstants.DB_VERB_BACKUP:
+            verboseBackup = enable;
+            break;
         case DbConstants.DB_VERB_DEADLOCK:
             verboseDeadlock = enable;
             break;
@@ -3627,6 +4012,8 @@ True if the database environment is configured to accept information
     public boolean getVerbose(final VerboseConfig flag) {
         int iflag = flag.getInternalFlag();
         switch (iflag) {
+        case DbConstants.DB_VERB_BACKUP:
+            return verboseBackup;
         case DbConstants.DB_VERB_DEADLOCK:
             return verboseDeadlock;
         case DbConstants.DB_VERB_FILEOPS:
@@ -4053,87 +4440,55 @@ True if the system has been configured to yield the processor
             dbenv.log_set_config(DbConstants.DB_LOG_ZERO, logZero);
 
         /* Verbose flags */
-        if (verboseDeadlock && !oldConfig.verboseDeadlock)
-            dbenv.set_verbose(DbConstants.DB_VERB_DEADLOCK, true);
-        if (!verboseDeadlock && oldConfig.verboseDeadlock)
-            dbenv.set_verbose(DbConstants.DB_VERB_DEADLOCK, false);
-
-        if (verboseFileops && !oldConfig.verboseFileops)
-            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS, true);
-        if (!verboseFileops && oldConfig.verboseFileops)
-            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS, false);
-
-        if (verboseFileopsAll && !oldConfig.verboseFileopsAll)
-            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS_ALL, true);
-        if (!verboseFileopsAll && oldConfig.verboseFileopsAll)
-            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS_ALL, false);
-
-        if (verboseRecovery && !oldConfig.verboseRecovery)
-            dbenv.set_verbose(DbConstants.DB_VERB_RECOVERY, true);
-        if (!verboseRecovery && oldConfig.verboseRecovery)
-            dbenv.set_verbose(DbConstants.DB_VERB_RECOVERY, false);
-
-        if (verboseRegister && !oldConfig.verboseRegister)
-            dbenv.set_verbose(DbConstants.DB_VERB_REGISTER, true);
-        if (!verboseRegister && oldConfig.verboseRegister)
-            dbenv.set_verbose(DbConstants.DB_VERB_REGISTER, false);
-
-        if (verboseReplication && !oldConfig.verboseReplication)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPLICATION, true);
-        if (!verboseReplication && oldConfig.verboseReplication)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPLICATION, false);
-
-        if (verboseReplicationElection && !oldConfig.verboseReplicationElection)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_ELECT, true);
-        if (!verboseReplicationElection && oldConfig.verboseReplicationElection)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_ELECT, false);
-
-        if (verboseReplicationLease && !oldConfig.verboseReplicationLease)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_LEASE, true);
-        if (!verboseReplicationLease && oldConfig.verboseReplicationLease)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_LEASE, false);
-
-        if (verboseReplicationMisc && !oldConfig.verboseReplicationMisc)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_MISC, true);
-        if (!verboseReplicationMisc && oldConfig.verboseReplicationMisc)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_MISC, false);
-
-        if (verboseReplicationMsgs && !oldConfig.verboseReplicationMsgs)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_MSGS, true);
-        if (!verboseReplicationMsgs && oldConfig.verboseReplicationMsgs)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_MSGS, false);
-
-        if (verboseReplicationSync && !oldConfig.verboseReplicationSync)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_SYNC, true);
-        if (!verboseReplicationSync && oldConfig.verboseReplicationSync)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_SYNC, false);
-
-        if (verboseReplicationSystem && !oldConfig.verboseReplicationSystem)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_SYSTEM, true);
-        if (!verboseReplicationSystem && oldConfig.verboseReplicationSystem)
-	    dbenv.set_verbose(DbConstants.DB_VERB_REP_SYSTEM, false);
-
-        if (verboseReplicationTest && !oldConfig.verboseReplicationTest)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_TEST, true);
-        if (!verboseReplicationTest && oldConfig.verboseReplicationTest)
-            dbenv.set_verbose(DbConstants.DB_VERB_REP_TEST, false);
-
-        if (verboseRepmgrConnfail && !oldConfig.verboseRepmgrConnfail)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_CONNFAIL, true);
-        if (!verboseRepmgrConnfail && oldConfig.verboseRepmgrConnfail)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_CONNFAIL, false);
-
-        if (verboseRepmgrMisc && !oldConfig.verboseRepmgrMisc)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_MISC, true);
-        if (!verboseRepmgrMisc && oldConfig.verboseRepmgrMisc)
-            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_MISC, false);
-
-        if (verboseWaitsFor && !oldConfig.verboseWaitsFor)
-            dbenv.set_verbose(DbConstants.DB_VERB_WAITSFOR, true);
-        if (!verboseWaitsFor && oldConfig.verboseWaitsFor)
-            dbenv.set_verbose(DbConstants.DB_VERB_WAITSFOR, false);
+        if (verboseBackup != oldConfig.verboseBackup)
+            dbenv.set_verbose(DbConstants.DB_VERB_BACKUP, verboseBackup);
+        if (verboseDeadlock != oldConfig.verboseDeadlock)
+            dbenv.set_verbose(DbConstants.DB_VERB_DEADLOCK, verboseDeadlock);
+        if (verboseFileops != oldConfig.verboseFileops)
+            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS, verboseFileops);
+        if (verboseFileopsAll != oldConfig.verboseFileopsAll)
+            dbenv.set_verbose(DbConstants.DB_VERB_FILEOPS_ALL,
+                verboseFileopsAll);
+        if (verboseRecovery != !oldConfig.verboseRecovery)
+            dbenv.set_verbose(DbConstants.DB_VERB_RECOVERY, verboseRecovery);
+        if (verboseRegister != oldConfig.verboseRegister)
+            dbenv.set_verbose(DbConstants.DB_VERB_REGISTER, verboseRegister);
+        if (verboseReplication != oldConfig.verboseReplication)
+            dbenv.set_verbose(DbConstants.DB_VERB_REPLICATION,
+                verboseReplication);
+        if (verboseReplicationElection != oldConfig.verboseReplicationElection)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_ELECT,
+                verboseReplicationElection);
+        if (verboseReplicationLease != oldConfig.verboseReplicationLease)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_LEASE,
+                verboseReplicationLease);
+        if (verboseReplicationMisc != oldConfig.verboseReplicationMisc)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_MISC,
+                verboseReplicationMisc);
+        if (verboseReplicationMsgs != oldConfig.verboseReplicationMsgs)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_MSGS,
+                verboseReplicationMsgs);
+        if (verboseReplicationSync != oldConfig.verboseReplicationSync)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_SYNC,
+                verboseReplicationSync);
+        if (verboseReplicationSystem != oldConfig.verboseReplicationSystem)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_SYSTEM,
+                verboseReplicationSystem);
+        if (verboseReplicationTest != oldConfig.verboseReplicationTest)
+            dbenv.set_verbose(DbConstants.DB_VERB_REP_TEST,
+                verboseReplicationTest);
+        if (verboseRepmgrConnfail != oldConfig.verboseRepmgrConnfail)
+            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_CONNFAIL,
+                verboseRepmgrConnfail);
+        if (verboseRepmgrMisc != oldConfig.verboseRepmgrMisc)
+            dbenv.set_verbose(DbConstants.DB_VERB_REPMGR_MISC,
+                verboseRepmgrMisc);
+        if (verboseWaitsFor != oldConfig.verboseWaitsFor)
+            dbenv.set_verbose(DbConstants.DB_VERB_WAITSFOR, verboseWaitsFor);
 
         /* Callbacks */
+        if (backupHandler != oldConfig.backupHandler)
+            dbenv.set_backup_callbacks(backupHandler, backupHandler, backupHandler);
         if (feedbackHandler != oldConfig.feedbackHandler)
             dbenv.set_feedback(feedbackHandler);
         if (logRecordHandler != oldConfig.logRecordHandler)
@@ -4153,19 +4508,22 @@ True if the system has been configured to yield the processor
             dbenv.set_cachesize(cacheSize, cacheCount);
         if (cacheMax != oldConfig.cacheMax)
             dbenv.set_cache_max(cacheMax);
-        if (createDir != oldConfig.createDir)
-            dbenv.set_create_dir(createDir.toString());
 
         for (final java.util.Enumeration e = dataDirs.elements();
             e.hasMoreElements();) {
             final java.io.File dir = (java.io.File)e.nextElement();
             if (!oldConfig.dataDirs.contains(dir))
-                dbenv.set_data_dir(dir.toString());
+                dbenv.add_data_dir(dir.toString());
         }
+        if (createDir != oldConfig.createDir)
+            dbenv.set_create_dir(createDir.toString());
+
         if (!lockConflictsEqual(lockConflicts, oldConfig.lockConflicts))
             dbenv.set_lk_conflicts(lockConflicts);
         if (lockDetectMode != oldConfig.lockDetectMode)
             dbenv.set_lk_detect(lockDetectMode.getFlag());
+        if (lockTableSize != oldConfig.lockTableSize)
+            dbenv.set_lk_tablesize(lockTableSize);
         if (maxLocks != oldConfig.maxLocks)
             dbenv.set_lk_max_locks(maxLocks);
         if (maxLockers != oldConfig.maxLockers)
@@ -4192,6 +4550,8 @@ True if the system has been configured to yield the processor
             dbenv.set_mp_max_write(maxWrite, maxWriteSleep);
         if (messageStream != oldConfig.messageStream)
             dbenv.set_message_stream(messageStream);
+        if (metadataDir != oldConfig.metadataDir)
+            dbenv.set_metadata_dir(metadataDir.toString());
         if (mmapSize != oldConfig.mmapSize)
             dbenv.set_mp_mmapsize(mmapSize);
         if (mpPageSize != oldConfig.mpPageSize)
@@ -4214,6 +4574,8 @@ True if the system has been configured to yield the processor
             dbenv.mutex_set_align(mutexAlignment);
         if (mutexIncrement != oldConfig.mutexIncrement)
             dbenv.mutex_set_increment(mutexIncrement);
+        if (initMutexes != oldConfig.initMutexes)
+            dbenv.mutex_set_max(initMutexes);
         if (maxMutexes != oldConfig.maxMutexes)
             dbenv.mutex_set_max(maxMutexes);
         if (mutexTestAndSetSpins != oldConfig.mutexTestAndSetSpins)
@@ -4235,24 +4597,65 @@ True if the system has been configured to yield the processor
             temporaryDirectory != null &&
             !temporaryDirectory.equals(oldConfig.temporaryDirectory))
             dbenv.set_tmp_dir(temporaryDirectory.toString());
+        if (initResourceLocks != oldConfig.initResourceLocks)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_LOCK, initResourceLocks);
+        if (initResourceLockObjects != oldConfig.initResourceLockObjects)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_LOCKOBJECT, initResourceLockObjects);
+        if (initResourceLockers != oldConfig.initResourceLockers)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_LOCKER, initResourceLockers);
+        if (initResourceLogIds != oldConfig.initResourceLogIds)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_LOGID, initResourceLogIds);
+        if (initResourceTransactions != oldConfig.initResourceTransactions)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_TRANSACTION, initResourceTransactions);
+        if (initResourceThreads != oldConfig.initResourceThreads)
+            dbenv.set_memory_init(
+                DbConstants.DB_MEM_THREAD, initResourceThreads);
+        if (regionMemoryMax != oldConfig.regionMemoryMax)
+            dbenv.set_memory_max(regionMemoryMax);
         if (replicationInMemory != oldConfig.replicationInMemory)
             dbenv.rep_set_config(
 	        DbConstants.DB_REP_CONF_INMEM, replicationInMemory);
         if (repmgrAckPolicy != oldConfig.repmgrAckPolicy)
             dbenv.repmgr_set_ack_policy(repmgrAckPolicy.getId());
-        if (repmgrLocalSiteAddr != null && 
-	    !repmgrLocalSiteAddr.equals(oldConfig.repmgrLocalSiteAddr)) {
-            dbenv.repmgr_set_local_site(
-                repmgrLocalSiteAddr.host, repmgrLocalSiteAddr.port, 0);
-        }
-        java.util.Iterator elems = repmgrRemoteSites.entrySet().iterator();
+        java.util.Iterator elems = repmgrSitesConfig.listIterator();
+        java.util.Iterator oldElems = oldConfig.repmgrSitesConfig.listIterator();
         while (elems.hasNext()){
-            java.util.Map.Entry ent = (java.util.Map.Entry)elems.next();
-            ReplicationHostAddress nextAddr = 
-                (ReplicationHostAddress)ent.getKey();
-            Boolean isPeer = (Boolean)ent.getValue();
-            dbenv.repmgr_add_remote_site(nextAddr.host, nextAddr.port,
-                isPeer ? DbConstants.DB_REPMGR_PEER : 0);
+            ReplicationManagerSiteConfig ent =
+                (ReplicationManagerSiteConfig)elems.next();
+            ReplicationManagerSiteConfig oldEnt = null;
+            while (oldElems.hasNext()){
+                ReplicationManagerSiteConfig tmpEnt =
+                    (ReplicationManagerSiteConfig)oldElems.next();
+                if (ent.getAddress().equals(tmpEnt.getAddress())) {
+                    oldEnt = tmpEnt;
+                    break;
+                }
+            }
+            if (oldEnt == null)
+                oldEnt = new ReplicationManagerSiteConfig(
+                    ent.getHost(), ent.getPort());
+            if (!oldEnt.equals(ent)) {
+                DbSite site = dbenv.repmgr_site(ent.getHost(), ent.getPort());
+                if (ent.getBootstrapHelper() != oldEnt.getBootstrapHelper()) 
+                    site.set_config(DbConstants.DB_BOOTSTRAP_HELPER,
+                        ent.getBootstrapHelper());
+                if (ent.getGroupCreator() != oldEnt.getGroupCreator())
+                    site.set_config(DbConstants.DB_GROUP_CREATOR,
+                        ent.getGroupCreator());
+                if (ent.getLegacy() != oldEnt.getLegacy())
+                    site.set_config(DbConstants.DB_LEGACY, ent.getLegacy());
+                if (ent.getLocalSite() != oldEnt.getLocalSite())
+                    site.set_config(DbConstants.DB_LOCAL_SITE,
+                        ent.getLocalSite());
+                if (ent.getPeer() != oldEnt.getPeer())
+                    site.set_config(DbConstants.DB_REPMGR_PEER, ent.getPeer());
+                site.close();
+            }
         }
     }
 
@@ -4310,6 +4713,7 @@ True if the system has been configured to yield the processor
         }
 
         /* Verbose flags */
+        verboseBackup = dbenv.get_verbose(DbConstants.DB_VERB_BACKUP);
         verboseDeadlock = dbenv.get_verbose(DbConstants.DB_VERB_DEADLOCK);
         verboseFileops = dbenv.get_verbose(DbConstants.DB_VERB_FILEOPS);
         verboseFileopsAll = dbenv.get_verbose(DbConstants.DB_VERB_FILEOPS_ALL);
@@ -4334,6 +4738,7 @@ True if the system has been configured to yield the processor
         eventHandler = dbenv.get_event_notify();
         messageHandler = dbenv.get_msgcall();
         panicHandler = dbenv.get_paniccall();
+        backupHandler = dbenv.get_backup_handler();
         // XXX: replicationTransport and envid aren't available?
 
         /* Other settings */
@@ -4366,6 +4771,7 @@ True if the system has been configured to yield the processor
         if (initializeLocking) {
             lockConflicts = dbenv.get_lk_conflicts();
             lockDetectMode = LockDetectMode.fromFlag(dbenv.get_lk_detect());
+            lockTableSize = dbenv.get_lk_tablesize();
             lockTimeout = dbenv.get_timeout(DbConstants.DB_SET_LOCK_TIMEOUT);
             maxLocks = dbenv.get_lk_max_locks();
             maxLockers = dbenv.get_lk_max_lockers();
@@ -4375,6 +4781,7 @@ True if the system has been configured to yield the processor
         } else {
             lockConflicts = null;
             lockDetectMode = LockDetectMode.NONE;
+            lockTableSize = 0;
             lockTimeout = 0L;
             maxLocks = 0;
             maxLockers = 0;
@@ -4399,25 +4806,46 @@ True if the system has been configured to yield the processor
         // XXX: intentional information loss?
         password = (dbenv.get_encrypt_flags() == 0) ? null : "";
 
+        // Get the initial region resource sizes.
+        if (initializeLocking) {
+            initResourceLocks =
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCK);
+            initResourceLockObjects =
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCKOBJECT);
+            initResourceLockers =
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCKER);
+        }
+        if (initializeLogging)
+            initResourceLogIds =
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOGID);
+        if (transactional)
+            initResourceTransactions =
+                dbenv.get_memory_init(DbConstants.DB_MEM_TRANSACTION);
+        initResourceThreads = dbenv.get_memory_init(DbConstants.DB_MEM_THREAD);
+
+        regionMemoryMax = dbenv.get_memory_max();
+
+        String metadataDirStr = dbenv.get_metadata_dir();
+        if (metadataDirStr != null)
+            metadataDir = new java.io.File(metadataDirStr);
+
         if (initializeReplication) {
             replicationClockskewFast = dbenv.rep_get_clockskew_fast();
             replicationClockskewSlow = dbenv.rep_get_clockskew_slow();
             replicationInMemory = dbenv.rep_get_config(
 	        DbConstants.DB_REP_CONF_INMEM);
             replicationLimit = dbenv.rep_get_limit();
-            replicationNumSites = dbenv.rep_get_nsites();
+            /*
+             * For the replicationNumSites field, it's sometimes illegal to
+             * call rep_get_nsites, so we use 0 as a way to identify if the
+             * user has changed the value.
+             */
+            replicationNumSites = 0;
             replicationPriority = dbenv.rep_get_priority();
             replicationRequestMin = dbenv.rep_get_request_min();
             replicationRequestMax = dbenv.rep_get_request_max();
-            repmgrRemoteSites = new java.util.HashMap();
-            java.util.Iterator sites = 
-                java.util.Arrays.asList(dbenv.repmgr_site_list()).listIterator();
-            while (sites.hasNext()){
-                ReplicationManagerSiteInfo site = 
-                    (ReplicationManagerSiteInfo)sites.next();
-                repmgrRemoteSites.put(site.addr, Boolean.FALSE);
-            }
-	    repmgrLocalSiteAddr = dbenv.repmgr_get_local_site();
+            repmgrAckPolicy = ReplicationManagerAckPolicy.fromInt(
+                dbenv.repmgr_get_ack_policy());
         } else {
             replicationLimit = 0L;
             replicationRequestMin = 0;
@@ -4427,6 +4855,7 @@ True if the system has been configured to yield the processor
         segmentId = dbenv.get_shm_key();
         mutexAlignment = dbenv.mutex_get_align();
         mutexIncrement = dbenv.mutex_get_increment();
+        initMutexes = dbenv.mutex_get_init();
         maxMutexes = dbenv.mutex_get_max();
         mutexTestAndSetSpins = dbenv.mutex_get_tas_spins();
         if (transactional) {

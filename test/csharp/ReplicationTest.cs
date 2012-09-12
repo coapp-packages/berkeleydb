@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -26,12 +26,13 @@ namespace CsharpAPITest
 		private EventWaitHandle masterCloseSignal;
 
 		private EventWaitHandle client1StartSignal;
-		private EventWaitHandle client1ReadySignal;
 		private EventWaitHandle client2StartSignal;
-		private EventWaitHandle client2ReadySignal;
 		private EventWaitHandle client3StartSignal;
-		private EventWaitHandle client3ReadySignal;
+		private EventWaitHandle clientsElectionSignal;
 		private EventWaitHandle masterLeaveSignal;
+
+		private uint startUpDone;
+		private bool electionDone;
 
 		List<uint> ports = new List<uint>();
 
@@ -74,55 +75,89 @@ namespace CsharpAPITest
 			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
 
 			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", mPort);
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = mPort;
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].LocalSite = true;
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].GroupCreator = true;
 			cfg.RepSystemCfg.Priority = 100;
-			cfg.RepSystemCfg.NSites = 2;
 
 			DatabaseEnvironment mEnv = DatabaseEnvironment.Open(
 			    masterHome, cfg);
 			mEnv.DeadlockResolution = DeadlockPolicy.DEFAULT;
 			mEnv.RepMgrStartMaster(2);
 
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", cPort);
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = cPort;
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].GroupCreator = false;
 			cfg.RepSystemCfg.Priority = 10;
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", mPort), 
-			    false);
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Port = mPort;
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Helper = true;
 			DatabaseEnvironment cEnv = DatabaseEnvironment.Open(
 			    clientHome, cfg);
 			cEnv.RepMgrStartClient(2, false);
 
+			/* Wait for client to start up */
+			int i = 0;
+			while (!cEnv.ReplicationSystemStats().ClientStartupComplete) {
+				if (i < 20) {
+					Thread.Sleep(1000);
+					i++;
+				} else
+					throw new TestException();
+			}
+
 			/*
-			 * Verify the client info could be achived by master's
+			 * Verify the client info could be observed by master's
 			 * remote site.
 			 */ 			 
 			Assert.AreEqual(1, mEnv.RepMgrRemoteSites.Length);
-			RepMgrSite site = mEnv.RepMgrRemoteSites[0];
+			RepMgrSite rsite = mEnv.RepMgrRemoteSites[0];
+			Assert.AreEqual("127.0.0.1", rsite.Address.Host);
+			Assert.AreEqual(cPort, rsite.Address.Port);
+			Assert.AreEqual(true, rsite.isConnected);
+			Assert.AreEqual(false, rsite.isPeer);
+
+			DbSite site = mEnv.RepMgrSite("127.0.0.1", mPort);
+			Assert.AreEqual("127.0.0.1", site.Address.Host);
+			Assert.AreEqual(mPort, site.Address.Port);
+			Assert.LessOrEqual(0, site.EId);
+			Assert.AreEqual(true, site.GroupCreator);
+			Assert.AreEqual(true, site.LocalSite);
+			Assert.AreEqual(false, site.Helper);
+			Assert.AreEqual(false, site.Legacy);
+			Assert.AreEqual(false, site.Peer);
+			site.Close();
+
+			site = mEnv.RepMgrSite("127.0.0.1", cPort);
 			Assert.AreEqual("127.0.0.1", site.Address.Host);
 			Assert.AreEqual(cPort, site.Address.Port);
-			Assert.AreEqual(0, site.EId);
-			Assert.AreEqual(true, site.isConnected);
-			Assert.AreEqual(false, site.isPeer);
+			Assert.AreEqual(rsite.EId, site.EId);
+			Assert.AreEqual(false, site.GroupCreator);
+			Assert.AreEqual(false, site.LocalSite);
+			Assert.AreEqual(false, site.Helper);
+			Assert.AreEqual(false, site.Legacy);
+			Assert.AreEqual(false, site.Peer);
+			site.Remove();
 
 			cEnv.Close();
 			mEnv.Close();
 
 			/*
 			 * Update the repmgr site, and verify it is updated in
-			 * unmanged memory.
+			 * unmanaged memory.
 			 */ 			 
-			site.Address = new ReplicationHostAddress(
+			rsite.Address = new ReplicationHostAddress(
 			    "192.168.1.1", 1000);
-			site.EId = 1024;
-			site.isConnected = false;
-			site.isPeer = true;
-			Assert.AreEqual("192.168.1.1", site.Address.Host);
-			Assert.AreEqual(1000, site.Address.Port);
-			Assert.AreEqual(1024, site.EId);		
-			Assert.AreEqual(false, site.isConnected);
-			Assert.AreEqual(true, site.isPeer);
+			rsite.EId = 1024;
+			rsite.isConnected = false;
+			rsite.isPeer = true;
+			Assert.AreEqual("192.168.1.1", rsite.Address.Host);
+			Assert.AreEqual(1000, rsite.Address.Port);
+			Assert.AreEqual(1024, rsite.EId);
+			Assert.AreEqual(false, rsite.isConnected);
+			Assert.AreEqual(true, rsite.isPeer);
 		}
 
 		[Test]
@@ -180,10 +215,11 @@ namespace CsharpAPITest
 			cfg.TxnNoSync = true;
 			cfg.FreeThreaded = true;
 			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite = 
-			    new ReplicationHostAddress("127.0.0.1", ports[0]);
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = ports[0];
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].LocalSite = true;
 			cfg.RepSystemCfg.Priority = 100;
-			cfg.RepSystemCfg.NSites = 2;
 			cfg.RepSystemCfg.BulkTransfer = true;
 			cfg.RepSystemCfg.AckTimeout = 2000;
 			cfg.RepSystemCfg.BulkTransfer = true;
@@ -216,22 +252,26 @@ namespace CsharpAPITest
 			    repStats.CurrentElectionGenerationNumber);
 			Assert.AreEqual(0, repStats.CurrentGenerationNumber);
 			Assert.AreEqual(0, repStats.AppliedTransactions);
+			Assert.AreEqual(0, repStats.ElectionDataGeneration);
 
 			// Start a master site with replication manager.
 			env.RepMgrStartMaster(3);
 
 			// Open a btree database and write some data.
+			Transaction txn = env.BeginTransaction();
 			BTreeDatabaseConfig dbConfig = 
 			    new BTreeDatabaseConfig();
 			dbConfig.Creation = CreatePolicy.IF_NEEDED;
-			dbConfig.AutoCommit = true;
 			dbConfig.Env = env;
 			dbConfig.PageSize = 512;
 			BTreeDatabase db = BTreeDatabase.Open(dbName, 
-			    dbConfig);
+			    dbConfig, txn);
+			txn.Commit();
+			txn = env.BeginTransaction();
 			for (int i = 0; i < 5; i++)
-				db.Put(new DatabaseEntry(BitConverter.GetBytes(i)), 
-				    new DatabaseEntry(BitConverter.GetBytes(i)));
+				db.Put(new DatabaseEntry(BitConverter.GetBytes(i)),
+				    new DatabaseEntry(BitConverter.GetBytes(i)), txn);
+			txn.Commit();
 
 			Console.WriteLine(
 			    "Master: Finished initialization and data#1.");
@@ -244,9 +284,12 @@ namespace CsharpAPITest
 			Console.WriteLine("...");
 
 			// Put some new data into master site.
+			txn = env.BeginTransaction();
 			for (int i = 10; i < 15; i++)
 				db.Put(new DatabaseEntry(BitConverter.GetBytes(i)), 
-				    new DatabaseEntry(BitConverter.GetBytes(i)));
+				    new DatabaseEntry(BitConverter.GetBytes(i)),
+				    txn);
+			txn.Commit();
 			Console.WriteLine(
 			    "Master: Write something new, data #2.");
 			Console.WriteLine("Master: Wait for client to read #2...");
@@ -364,12 +407,15 @@ namespace CsharpAPITest
 			cfg.FreeThreaded = true;
 			cfg.LockTimeout = 50000;
 			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite = 
-			    new ReplicationHostAddress("127.0.0.1", ports[1]);
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = ports[1];
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].LocalSite = true;
 			cfg.RepSystemCfg.Priority = 10;
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[0]), false);
-			cfg.RepSystemCfg.NSites = 2;
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Port = ports[0];
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Helper = true;
 			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
 			DatabaseEnvironment env = DatabaseEnvironment.Open(
 			    home, cfg);
@@ -413,7 +459,7 @@ namespace CsharpAPITest
 			// Get the latest replication subsystem statistics.
 			ReplicationStats repStats = env.ReplicationSystemStats();
 			Assert.IsTrue(repStats.ClientStartupComplete);
-			Assert.AreEqual(1, repStats.DuplicateLogRecords);
+			Assert.LessOrEqual(0, repStats.DuplicateLogRecords);
 			Assert.LessOrEqual(0, repStats.EnvID);
 			Assert.LessOrEqual(0, repStats.NextPage);
 			Assert.LessOrEqual(0, repStats.ReceivedPages);
@@ -435,19 +481,39 @@ namespace CsharpAPITest
 			switch (eventCode)
 			{
 				case NotificationEvent.REP_CLIENT:
-					Console.WriteLine("CLIENT");
+				Console.WriteLine("Event: CLIENT");
+					break;
+				case NotificationEvent.REP_CONNECT_BROKEN:
+					Console.WriteLine("Event: REP_CONNECT_BROKEN");
+					break;
+				case NotificationEvent.REP_CONNECT_ESTD:
+					Console.WriteLine("Event: REP_CONNECT_ESTD");
+					break;
+				case NotificationEvent.REP_CONNECT_TRY_FAILED:
+					Console.WriteLine("Event: REP_CONNECT_TRY_FAILED");
 					break;
 				case NotificationEvent.REP_MASTER:
-					Console.WriteLine("MASTER");
+					Console.WriteLine("Event: MASTER");
 					break;
 				case NotificationEvent.REP_NEWMASTER:
-					Console.WriteLine("NEWMASTER");
+					electionDone = true;
+					Console.WriteLine("Event: NEWMASTER");
+					break;
+				case NotificationEvent.REP_LOCAL_SITE_REMOVED:
+					Console.WriteLine("Event: REP_LOCAL_SITE_REMOVED");
+					break;
+				case NotificationEvent.REP_SITE_ADDED:
+					Console.WriteLine("Event: REP_SITE_ADDED");
+					break;
+				case NotificationEvent.REP_SITE_REMOVED:
+					Console.WriteLine("Event: REP_SITE_REMOVED");
 					break;
 				case NotificationEvent.REP_STARTUPDONE:
-					/* We don't care about these */
+					startUpDone++;
+					Console.WriteLine("Event: REP_STARTUPDONE");
 					break;
 				case NotificationEvent.REP_PERM_FAILED:
-					Console.WriteLine("Insufficient Acks.");
+					Console.WriteLine("Event: Insufficient Acks.");
 					break;
 				default:
 					Console.WriteLine("Event: {0}", eventCode);
@@ -472,13 +538,27 @@ namespace CsharpAPITest
 			portGen.MoveNext();
 			ports.Insert(3, portGen.Current);
 
+			/*
+			 * The *Signals are used as triggers to control the test
+			 * work flow.  The client1StartSignal would be set once
+			 * the master is ready and notify the client1 to start.
+			 * The client2StartSignal would be set once the client1
+			 * is ready and notify the client2 to start.  The 
+			 * client3StartSignal is similar.  The masterLeaveSignal
+			 * would be set once the last client client3 is ready
+			 * and notify the master to leave.  The 
+			 * clientsElectionSignal would be set when the master
+			 * has already left and new master would be elected.
+			 */ 
 			client1StartSignal = new AutoResetEvent(false);
 			client2StartSignal = new AutoResetEvent(false);
-			client1ReadySignal = new AutoResetEvent(false);
-			client2ReadySignal = new AutoResetEvent(false);
 			client3StartSignal = new AutoResetEvent(false);
-			client3ReadySignal = new AutoResetEvent(false);
+			clientsElectionSignal = new AutoResetEvent(false);
 			masterLeaveSignal = new AutoResetEvent(false);
+			// Count startup done event.
+			startUpDone = 0;
+			// Whether finish election.
+			electionDone = false;
 
 			Thread thread1 = new Thread(
 			    new ThreadStart(UnstableMaster));
@@ -489,24 +569,50 @@ namespace CsharpAPITest
 			Thread thread4 = new Thread(
 			    new ThreadStart(StableClient3));
 
-			thread1.Start();
-			Thread.Sleep(1000);
-			thread2.Start();
-			thread3.Start();
-			thread4.Start();
+			try {
+				thread1.Start();
 
-			thread4.Join();
-			thread3.Join();
-			thread2.Join();
-			thread1.Join();
+				/*
+				 * After start up is done at master, start
+				 * client1.  Wait for the signal for 50000 ms. 
+				 */
+				if (!client1StartSignal.WaitOne(50000))
+					throw new TestException();
+				thread2.Start();
 
-			client1StartSignal.Close();
-			client2StartSignal.Close();
-			client1ReadySignal.Close();
-			client2ReadySignal.Close();
-			client3ReadySignal.Close();
-			client3StartSignal.Close();
-			masterLeaveSignal.Close();
+				 // Ready to start client2.
+				if (!client2StartSignal.WaitOne(50000))
+					throw new TestException();
+				thread3.Start();
+
+				// Ready to start client3.
+				if (!client3StartSignal.WaitOne(50000))
+					throw new TestException();
+				thread4.Start();
+
+				thread4.Join();
+				thread3.Join();
+				thread2.Join();
+				thread1.Join();
+
+				Assert.IsTrue(electionDone);
+			} catch (TestException e) {
+				if (thread1.IsAlive)
+					thread1.Abort();
+				if (thread2.IsAlive)
+					thread2.Abort();
+				if (thread3.IsAlive)
+					thread3.Abort();
+				if (thread4.IsAlive)
+					thread4.Abort();
+				throw e;
+			} finally {
+				client1StartSignal.Close();
+				client2StartSignal.Close();
+				client3StartSignal.Close();
+				clientsElectionSignal.Close();
+				masterLeaveSignal.Close();
+			}
 		}
 
 		public void UnstableMaster()
@@ -530,10 +636,12 @@ namespace CsharpAPITest
 			cfg.TxnNoSync = true;
 			cfg.FreeThreaded = true;
 			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", ports[0]);
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(
+			    new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = ports[0];
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].LocalSite = true;
 			cfg.RepSystemCfg.Priority = 200;
-			cfg.RepSystemCfg.NSites = 4;
 			cfg.RepSystemCfg.ElectionRetry = 10;
 			cfg.RepSystemCfg.RepMgrAckPolicy = AckPolicy.ALL;
 			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
@@ -541,266 +649,176 @@ namespace CsharpAPITest
 			    home, cfg);
 			env.DeadlockResolution = DeadlockPolicy.DEFAULT;
 
-			// Start as master site.
-			env.RepMgrStartMaster(3);
+			try {
+				// Start as master site.
+				env.RepMgrStartMaster(3);
+				Console.WriteLine(
+				    "Master: Create a new repmgr group");
 
-			Console.WriteLine("Master: Finish initialization");
+				// Client1 could start now.
+				client1StartSignal.Set();
 
-			// Notify clients to join.
-			client1StartSignal.Set();
-			client2StartSignal.Set();
-			client3StartSignal.Set();
+				// Wait for initialization of all clients.
+				if (!masterLeaveSignal.WaitOne(50000))
+					throw new TestException();
 
-			// Wait for initialization of all clients.
-			client1ReadySignal.WaitOne();
-			client2ReadySignal.WaitOne();
-			client3ReadySignal.WaitOne();
+				// Check remote sites are valid.
+				foreach (RepMgrSite site in 
+				    env.RepMgrRemoteSites) {
+					Assert.AreEqual("127.0.0.1",
+					    site.Address.Host);
+					Assert.IsTrue(ports.Contains(
+					    site.Address.Port));
+				}
 
-			ports.Add(ports[1]);
-			ports.Add(ports[2]);
-			ports.Add(ports[3]);
-			foreach (RepMgrSite site in env.RepMgrRemoteSites)
-			{
-				Assert.AreEqual("127.0.0.1", site.Address.Host);
-				Assert.IsTrue(ports.Contains(site.Address.Port));
-				Assert.Greater(4, site.EId);
-				Assert.IsTrue(site.isConnected);
-				Assert.IsFalse(site.isPeer);
+				// Close the current master.
+				Console.WriteLine("Master: Unexpected leave.");
+				env.LogFlush();
+			} catch(Exception e) {
+				Console.WriteLine(e.Message);
+			} finally {
+				env.Close();
+				/*
+				 * Clean up electionDone and startUpDone to 
+				 * check election for new master and start-up
+				 * done on clients. 
+				 */ 
+				electionDone = false;
+				startUpDone = 0;
+				/*
+				 * Need to set signals for three times, each
+				 * site would wait for one.
+				 */ 
+				for (int i = 0; i < 3; i++)
+					clientsElectionSignal.Set();
 			}
-
-			// After all of them are ready, close the current master.
-			Console.WriteLine("Master: Unexpected leave.");
-			env.LogFlush();
-			env.Close();
-			masterLeaveSignal.Set();
 		}
 
 		public void StableClient1()
 		{
-			string home = testHome + "/StableClient1";
+			StableClient(testHome + "/StableClient1", 1, ports[1],
+			    10, ports[0], 0, client2StartSignal);
+		}
+
+		public void StableClient2()
+		{
+			StableClient(testHome + "/StableClient2", 2, ports[2],
+			    20, ports[0], ports[3], client3StartSignal);
+		}
+
+		public void StableClient3()
+		{
+			StableClient(testHome + "/StableClient3", 3, ports[3],
+			    80, ports[0], ports[2], masterLeaveSignal);
+		}
+
+		public void StableClient(string home, int clientIdx,
+		    uint localPort, uint priority, 
+		    uint helperPort, uint peerPort, 
+		    EventWaitHandle notifyHandle)
+		{
+			int timeout = 0;
+
 			Configuration.ClearDir(home);
 
-			// Get notification from master and start the #1 client.
-			client1StartSignal.WaitOne();
-			Console.WriteLine("Client1: Join the replication");
+			Console.WriteLine(
+			    "Client{0}: Join the replication", clientIdx);
 
-			// Open the environment.
 			DatabaseEnvironmentConfig cfg =
 			    new DatabaseEnvironmentConfig();
-			cfg.UseReplication = true;
+			cfg.Create = true;
+			cfg.FreeThreaded = true;
 			cfg.MPoolSystemCfg = new MPoolConfig();
 			cfg.MPoolSystemCfg.CacheSize = 
 			    new CacheInfo(0, 20485760, 1);
-			cfg.UseLocking = true;
-			cfg.UseTxns = true;
-			cfg.UseMPool = true;
-			cfg.Create = true;
-			cfg.UseLogging = true;
 			cfg.RunRecovery = true;
 			cfg.TxnNoSync = true;
-			cfg.FreeThreaded = true;
-			cfg.LockTimeout = 50000;
+			cfg.UseLocking = true;
+			cfg.UseMPool = true;
+			cfg.UseTxns = true;
+			cfg.UseReplication = true;
+			cfg.UseLogging = true;
 			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", ports[1]);
-			cfg.RepSystemCfg.Priority = 10;
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[0]), false);
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[3]), true);
-			cfg.RepSystemCfg.NSites = 4;
-			cfg.RepSystemCfg.ElectionRetry = 10;
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(
+			    new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].Port = localPort;
+			cfg.RepSystemCfg.RepmgrSitesConfig[0].LocalSite = true;
+			cfg.RepSystemCfg.Priority = priority;
+			cfg.RepSystemCfg.RepmgrSitesConfig.Add(
+			    new DbSiteConfig());
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Host = "127.0.0.1";
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Port = helperPort;
+			cfg.RepSystemCfg.RepmgrSitesConfig[1].Helper = true;
+			cfg.RepSystemCfg.ElectionRetry = 100;
 			cfg.RepSystemCfg.RepMgrAckPolicy = AckPolicy.NONE;
 			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
 			DatabaseEnvironment env = DatabaseEnvironment.Open(
 			    home, cfg);
 			env.DeadlockResolution = DeadlockPolicy.DEFAULT;
 
-			// Start the client who won't raise any election.
-			env.RepMgrStartClient(3, false);
+			try {
+				// Start the client.
+				Assert.AreEqual(clientIdx - 1, startUpDone);
+				env.RepMgrStartClient(3, false);
+				while (startUpDone < clientIdx) {
+					if (timeout > 10)
+						throw new TestException();
+					timeout++;
+					Thread.Sleep(1000);
+				}
 
-			// Leave enough time to sync.
-			Thread.Sleep(20000);
+				ReplicationStats repStats =
+				    env.ReplicationSystemStats();
+				Assert.LessOrEqual(0, repStats.Elections);
+				Assert.LessOrEqual(0, 
+				    repStats.ElectionTiebreaker);
+				Assert.LessOrEqual(0, repStats.ElectionTimeSec +
+				    repStats.ElectionTimeUSec);
+				Assert.LessOrEqual(0, repStats.MasterChanges);
+				Assert.LessOrEqual(0, repStats.NewSiteMessages);
+				Assert.LessOrEqual(0, 
+				    repStats.ReceivedLogRecords);
+				Assert.LessOrEqual(0, repStats.ReceivedMessages);
+				Assert.LessOrEqual(0, repStats.ReceivedPages);
+				Assert.GreaterOrEqual(clientIdx + 1,
+				    repStats.RegisteredSitesNeeded);
+				Assert.LessOrEqual(0, repStats.Sites);
 
-			// The current client site is fully initialized.
-			client1ReadySignal.Set();
+				// Notify the next event.
+				notifyHandle.Set();
 
-			foreach (RepMgrSite site in env.RepMgrRemoteSites)
-			{
-				if (site.Address.Port == ports[3])
-					Assert.IsTrue(site.isPeer);
-				else
-					Assert.IsFalse(site.isPeer);
+				// Wait for master's leave.
+				if (!clientsElectionSignal.WaitOne(50000))
+					throw new TestException();
+
+				timeout = 0;
+				while (!electionDone) {
+					if (timeout > 10)
+						throw new TestException();
+					timeout++;
+					Thread.Sleep(1000);
+				}
+
+				env.LogFlush();
+
+				timeout = 0;
+				// Start up done event happens on client.
+				while (startUpDone < 2) {
+					if (timeout > 10)
+						throw new TestException();
+					timeout++;
+					Thread.Sleep(1000);
+				}
+				Thread.Sleep((int)priority * 100);
+			} catch (Exception e) {
+				Console.WriteLine(e.Message);
+			} finally {
+				env.Close();
+				Console.WriteLine(
+				    "Client{0}: Leaving the replication",
+				    clientIdx);
 			}
-
-			// Wait for master's leave signal.
-			masterLeaveSignal.WaitOne();
-
-			/*
- 			 * Set the master's leave signal so that other clients 
-			 * could be informed.
-			 */
-			masterLeaveSignal.Set();
-
-			// Leave sometime for client to hold election.
-			Thread.Sleep(10000);
-
-			env.LogFlush();
-			env.Close();
-			Console.WriteLine("Client1: Leaving the replication");
-		}
-
-		public void StableClient2()
-		{
-			string home = testHome + "/StableClient2";
-			Configuration.ClearDir(home);
-
-			client2StartSignal.WaitOne();
-			Console.WriteLine("Client2: Join the replication");
-
-			DatabaseEnvironmentConfig cfg = 
-			    new DatabaseEnvironmentConfig();
-			cfg.UseReplication = true;
-			cfg.MPoolSystemCfg = new MPoolConfig();
-			cfg.MPoolSystemCfg.CacheSize = 
-			    new CacheInfo(0, 20485760, 1);
-			cfg.UseLocking = true;
-			cfg.UseTxns = true;
-			cfg.UseMPool = true;
-			cfg.Create = true;
-			cfg.UseLogging = true;
-			cfg.RunRecovery = true;
-			cfg.TxnNoSync = true;
-			cfg.FreeThreaded = true;
-			cfg.LockTimeout = 50000;
-			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", ports[2]);
-			cfg.RepSystemCfg.Priority = 20;
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[0]), false);
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[1]), true);
-			cfg.RepSystemCfg.NSites = 4;
-			cfg.RepSystemCfg.ElectionRetry = 10;
-			cfg.RepSystemCfg.RepMgrAckPolicy = 
-			    AckPolicy.ONE_PEER;
-			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
-			DatabaseEnvironment env = DatabaseEnvironment.Open(
-			    home, cfg);
-			env.DeadlockResolution = DeadlockPolicy.DEFAULT;
-
-			// Start the client who will raise election if no master.
-			env.RepMgrStartClient(3, true);
-
-			// Leave enough time to sync.
-			Thread.Sleep(20000);
-
-			// The current client site is fully initialized.
-			client2ReadySignal.Set();
-
-			// Wait for master's leave signal.
-			masterLeaveSignal.WaitOne();
-
-			/*
- 			 * Set the master's leave signal so that other clients 
-			 * could be informed.
-			 */
-			masterLeaveSignal.Set();
-
-			// Leave sometime for client to hold election.
-			Thread.Sleep(5000);
-
-			env.LogFlush();
-			env.Close();
-			Console.WriteLine("Client2: Leaving the replication");
-		}
-
-		public void StableClient3()
-		{
-			string home = testHome + "/StableClient3";
-			Configuration.ClearDir(home);
-
-			client3StartSignal.WaitOne();
-			Console.WriteLine("Client3: Join the replication");
-
-			DatabaseEnvironmentConfig cfg =
-			    new DatabaseEnvironmentConfig();
-			cfg.UseReplication = true;
-			cfg.MPoolSystemCfg = new MPoolConfig();
-			cfg.MPoolSystemCfg.CacheSize = 
-			    new CacheInfo(0, 20485760, 1);
-			cfg.UseLocking = true;
-			cfg.UseTxns = true;
-			cfg.UseMPool = true;
-			cfg.Create = true;
-			cfg.UseLogging = true;
-			cfg.RunRecovery = true;
-			cfg.TxnNoSync = true;
-			cfg.FreeThreaded = true;
-			cfg.LockTimeout = 50000;
-			cfg.RepSystemCfg = new ReplicationConfig();
-			cfg.RepSystemCfg.RepMgrLocalSite =
-			    new ReplicationHostAddress("127.0.0.1", ports[3]);
-			cfg.RepSystemCfg.Priority = 80;
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[0]), false);
-			cfg.RepSystemCfg.AddRemoteSite(
-			    new ReplicationHostAddress("127.0.0.1", ports[2]), true);
-			cfg.RepSystemCfg.NSites = 4;
-			cfg.EventNotify = new EventNotifyDelegate(stuffHappened);
-			cfg.RepSystemCfg.ElectionRetry = 10;
-			cfg.RepSystemCfg.RepMgrAckPolicy = AckPolicy.QUORUM;
-			DatabaseEnvironment env = DatabaseEnvironment.Open(
-			    home, cfg);
-			env.DeadlockResolution = DeadlockPolicy.DEFAULT;
-
-			env.RepMgrStartClient(3, false);
-
-			// Leave enough time to sync with master.
-			Thread.Sleep(20000);
-
-			// The current client site is fully initialized.
-			client3ReadySignal.Set();
-
-			// Wait for master's leave signal.
-			masterLeaveSignal.WaitOne();
-
-			/*
-			 * Set the master's leave signal so that other clients 
-			 * could be informed.
-			 */
-			masterLeaveSignal.Set();
-			
-			/*
-			 * Master will leave the replication after all clients' 
-			 * initialization. Leave sometime for master to leave 
-			 * and for clients elect.
-			 */
-			Thread.Sleep(5000);
-
-			ReplicationStats repStats = env.ReplicationSystemStats();
-			Assert.LessOrEqual(0, repStats.Elections);
-			Assert.LessOrEqual(0, repStats.ElectionTiebreaker);
-			Assert.LessOrEqual(0,
-			    repStats.ElectionTimeSec + repStats.ElectionTimeUSec);
-			Assert.LessOrEqual(0, repStats.MasterChanges);
-			Assert.LessOrEqual(0, repStats.NewSiteMessages);
-			Assert.LessOrEqual(0, repStats.ReceivedLogRecords);
-			Assert.LessOrEqual(0, repStats.ReceivedMessages);
-			Assert.LessOrEqual(0, repStats.ReceivedPages);
-			Assert.GreaterOrEqual(4, repStats.RegisteredSitesNeeded);
-			Assert.LessOrEqual(0, repStats.Sites);
-
-			/*
-			 * Client 3 will be the new master. The Elected master should wait 
-			 * until all other clients leave.
-			 */
-			Thread.Sleep(10000);
-
-			env.LogFlush();
-			env.Close();
-			Console.WriteLine("Client3: Leaving the replication");
 		}
 
 		[Test]
@@ -846,33 +864,38 @@ namespace CsharpAPITest
 			env.Close();
 		}
 
-        [Test]
-        public void TestLocalSite() {
-            testName = "TestLocalSite";
-            SetUpTest(true);
-            Configuration.ClearDir(testHome);
-            DatabaseEnvironmentConfig envConfig =
-                new DatabaseEnvironmentConfig();
-            envConfig.Create = true;
-            envConfig.UseLocking = true;
-            envConfig.UseLogging = true;
-            envConfig.UseMPool = true;
-            envConfig.UseReplication = true;
-            envConfig.UseTxns = true;
-            ReplicationHostAddress addr =
-                new ReplicationHostAddress("localhost:6060");
-            ReplicationConfig repCfg = new ReplicationConfig();
-            repCfg.RepMgrLocalSite = addr;
-            envConfig.RepSystemCfg = repCfg;
-            DatabaseEnvironment env =
-                DatabaseEnvironment.Open(testHome, envConfig);
-            ReplicationHostAddress testAddr = env.RepMgrLocalSite;
-            Assert.AreEqual(addr.Host, testAddr.Host);
-            Assert.AreEqual(addr.Port, testAddr.Port);
-            env.Close();
-        }
+		[Test]
+		public void TestLocalSite() {
+			testName = "TestLocalSite";
+			SetUpTest(true);
+			Configuration.ClearDir(testHome);
+			DatabaseEnvironmentConfig envConfig =
+			    new DatabaseEnvironmentConfig();
+			envConfig.Create = true;
+			envConfig.UseLocking = true;
+			envConfig.UseLogging = true;
+			envConfig.UseMPool = true;
+			envConfig.UseReplication = true;
+			envConfig.UseTxns = true;
+			ReplicationHostAddress addr =
+			    new ReplicationHostAddress("localhost:6060");
+			ReplicationConfig repCfg = new ReplicationConfig();
+			DbSiteConfig dbSiteConfig = new DbSiteConfig();
+			dbSiteConfig.Host = addr.Host;
+			dbSiteConfig.Port = addr.Port;
+			dbSiteConfig.LocalSite = true;
+			repCfg.RepmgrSitesConfig.Add(dbSiteConfig);
+			envConfig.RepSystemCfg = repCfg;
+			DatabaseEnvironment env =
+			    DatabaseEnvironment.Open(testHome, envConfig);
+			ReplicationHostAddress testAddr =
+			    env.RepMgrLocalSite.Address;
+			Assert.AreEqual(addr.Host, testAddr.Host);
+			Assert.AreEqual(addr.Port, testAddr.Port);
+			env.Close();
+		}
 
-        public class AvailablePorts : IEnumerable<uint>
+		public class AvailablePorts : IEnumerable<uint>
 		{
 			private List<uint> availablePort = new List<uint>();
 			private List<uint> usingPort = new List<uint>();
@@ -915,6 +938,59 @@ namespace CsharpAPITest
 					return availablePort[position];
 				}
 			}
+		}
+
+		[Test]
+		public void TestSiteRepConfig()
+		{
+			testName = "TestSiteRepConfig";
+			SetUpTest(true);
+			Configuration.ClearDir(testHome);
+			DatabaseEnvironmentConfig envConfig =
+			    new DatabaseEnvironmentConfig();
+			envConfig.Create = true;
+			envConfig.UseLocking = true;
+			envConfig.UseLogging = true;
+			envConfig.UseMPool = true;
+			envConfig.UseReplication = true;
+			envConfig.UseTxns = true;
+			ReplicationHostAddress addr =
+			    new ReplicationHostAddress("localhost:6060");
+			ReplicationConfig repCfg = new ReplicationConfig();
+			DbSiteConfig dbSiteConfig = new DbSiteConfig();
+			dbSiteConfig.Host = addr.Host;
+			dbSiteConfig.Port = addr.Port;
+			dbSiteConfig.LocalSite = true;
+			repCfg.RepmgrSitesConfig.Add(dbSiteConfig);
+
+			// DatabaseEnvironment.RepInMemory defaults to false.
+			envConfig.RepSystemCfg = repCfg;
+			DatabaseEnvironment env =
+			    DatabaseEnvironment.Open(testHome, envConfig);
+			Assert.AreEqual(false, env.RepInMemory);
+			env.Close();
+			Assert.Less(0,
+			    Directory.GetFiles(testHome, "__db.rep.*").Length);
+
+			// Set RepInMemory as true.
+			Configuration.ClearDir(testHome);
+			repCfg.InMemory = true;
+			envConfig.RepSystemCfg = repCfg;
+			env = DatabaseEnvironment.Open(testHome, envConfig);
+			Assert.AreEqual(true, env.RepInMemory);
+			env.Close();
+			Assert.AreEqual(0,
+			    Directory.GetFiles(testHome, "__db.rep.*").Length);
+
+			// Set RepInMemory as false.
+			Configuration.ClearDir(testHome);
+			repCfg.InMemory = false;
+			envConfig.RepSystemCfg = repCfg;
+			env = DatabaseEnvironment.Open(testHome, envConfig);
+			Assert.AreEqual(false, env.RepInMemory);
+			env.Close();
+			Assert.Less(0, 
+			    Directory.GetFiles(testHome, "__db.rep.*").Length);
 		}
 	}
 }

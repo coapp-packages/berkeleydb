@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -158,8 +158,11 @@ namespace CsharpAPITest
 			Assert.AreEqual(10240, stats.BufferSize);
 			Assert.AreEqual(1, stats.CurrentFile);
 			Assert.AreNotEqual(0, stats.CurrentOffset);
+			Assert.AreEqual(0, stats.FileId);
 			Assert.AreEqual(1048576, stats.FileSize);
+			Assert.AreEqual(0, stats.InitFileId);
 			Assert.AreNotEqual(0, stats.MagicNumber);
+			Assert.AreEqual(0, stats.MaxFileId);
 			Assert.AreNotEqual(0, stats.PermissionsMode);
 			Assert.AreEqual(1, stats.Records);
 			Assert.AreNotEqual(0, stats.RegionLockNoWait);

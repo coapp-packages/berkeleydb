@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -17,6 +17,11 @@ proc test043 { method {nentries 10000} args} {
 	puts "Test043: $method ($args)"
 
 	if { [is_record_based $method] != 1 } {
+		puts "Test043 skipping for method $method"
+		return
+	}
+
+	if { [is_heap $method] == 1 } {
 		puts "Test043 skipping for method $method"
 		return
 	}

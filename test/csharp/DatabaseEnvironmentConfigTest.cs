@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -218,6 +218,7 @@ namespace CsharpAPITest
 		public void TestConfigLock()
 		{
 			testName = "TestConfigLock";
+			SetUpTest(false);
 			XmlElement xmlElem = Configuration.TestSetUp(
 			    testFixtureName, testName);
 			DatabaseEnvironmentConfig cfg = 
@@ -233,6 +234,7 @@ namespace CsharpAPITest
 		public void TestConfigLog()
 		{
 			testName = "TestConfigLog";
+			SetUpTest(false);
 			XmlElement xmlElem = Configuration.TestSetUp(
 			    testFixtureName, testName);
 			DatabaseEnvironmentConfig cfg =
@@ -246,6 +248,7 @@ namespace CsharpAPITest
 		public void TestConfigMutex()
 		{
 			testName = "TestConfigMutex";
+			SetUpTest(false);
 			XmlElement xmlElem = Configuration.TestSetUp(
 			    testFixtureName, testName);
 			DatabaseEnvironmentConfig cfg =
@@ -259,6 +262,7 @@ namespace CsharpAPITest
 		public void TestConfigReplication()
 		{
 			testName = "TestConfigReplication";
+			SetUpTest(false);
 			XmlElement xmlElem = Configuration.TestSetUp(
 			    testFixtureName, testName);
 			DatabaseEnvironmentConfig cfg =

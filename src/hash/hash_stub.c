@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -29,8 +29,8 @@ int
 __db_no_hash_am(env)
 	ENV *env;
 {
-	__db_errx(env,
-	    "library build did not include support for the Hash access method");
+	__db_errx(env, DB_STR("1133",
+    "library build did not include support for the Hash access method"));
 	return (DB_OPNOTSUP);
 }
 
@@ -402,7 +402,6 @@ __ham_truncate(dbc, countp)
 	DBC *dbc;
 	u_int32_t *countp;
 {
-	COMPQUIET(dbc, NULL);
 	COMPQUIET(countp, NULL);
 	return (__db_no_hash_am(dbc->env));
 }

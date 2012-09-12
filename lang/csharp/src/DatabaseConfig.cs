@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -114,6 +114,7 @@ namespace BerkeleyDB {
 
         internal bool encryptionIsSet;
         private String encryptPwd;
+        private bool doEncrypt;
         private EncryptionAlgorithm encryptAlg;
         /// <summary>
         /// Set the password and algorithm used by the Berkeley DB library to
@@ -126,6 +127,7 @@ namespace BerkeleyDB {
         /// The algorithm used to perform encryption and decryption.
         /// </param>
         public void SetEncryption(String password, EncryptionAlgorithm alg) {
+            doEncrypt = true;
             encryptionIsSet = true;
             encryptPwd = password;
             encryptAlg = alg;
@@ -139,6 +141,26 @@ namespace BerkeleyDB {
         /// </summary>
         public EncryptionAlgorithm EncryptAlgorithm {
             get { return encryptAlg; }
+        }
+        /// <summary>
+        /// Encrypt the database using the cryptographic password specified by
+        /// <see cref="DatabaseConfig.SetEncryption">DatabaseConfig.SetEncryption</see> or
+        /// <see cref="DatabaseEnvironmentConfig.SetEncryption">DatabaseEnvironmentConfig.SetEncryption</see>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// If the database already exists, the value of Encrypted must be the
+        /// same as the existing database or an error will be returned.
+        /// </para>
+        /// <para>
+        /// Encrypted databases are not portable between machines of different
+        /// byte orders, that is, encrypted databases created on big-endian
+        /// machines cannot be read on little-endian machines, and vice versa. 
+        /// </para>
+        /// </remarks>
+        public bool Encrypted {
+            get { return doEncrypt; }
+            set { doEncrypt = value; }
         }
 
         /// <summary>
@@ -209,11 +231,30 @@ namespace BerkeleyDB {
         /// </remarks>
         public bool NonDurableTxns;
 
+        /// <summary>
+        /// Configuration of <see cref="BaseDatabase"/> handle to obtain a write
+        /// lock on the entire database.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// If true, configure the <see cref="BaseDatabase"/> handle to obtain a
+        /// write lock on the entire database. When the database is opened it
+        /// will immediately throw <see cref="LockNotGrantedException"/> if it
+        /// cannot obtain the exclusive lock immediately. If False, configure
+        /// the <see cref="BaseDatabase"/> handle to obtain a write lock on the
+        /// entire database. When the database is opened, it will block until it
+        /// can obtain the exclusive lock. If null, do not configure the
+        /// <see cref="BaseDatabase"/> handle to obtain a write lock on the
+        /// entire database.
+        /// </para>
+        /// </remarks>
+        public bool? NoWaitDbExclusiveLock;
+
         internal uint flags {
             get {
                 uint ret = 0;
                 ret |= DoChecksum ? Internal.DbConstants.DB_CHKSUM : 0;
-                ret |= encryptionIsSet ? Internal.DbConstants.DB_ENCRYPT : 0;
+                ret |= Encrypted ? Internal.DbConstants.DB_ENCRYPT : 0;
                 ret |= NonDurableTxns ? Internal.DbConstants.DB_TXN_NOT_DURABLE : 0;
                 return ret;
             }
@@ -304,6 +345,7 @@ namespace BerkeleyDB {
             Feedback = null;
             DoChecksum = false;
             NonDurableTxns = false;
+            NoWaitDbExclusiveLock = null;
             AutoCommit = false;
             FreeThreaded = false;
             NoMMap = false;

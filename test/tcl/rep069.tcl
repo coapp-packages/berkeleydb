@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2004, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2004, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -246,7 +246,7 @@ proc rep069_sub { method niter tnum logset largs } {
 		set id [expr $i + 1]
 		set fd [open $testdir/ELECTION_RESULT.$id r]
 		while { [gets $fd str] != -1 } {
-			if { [is_substr $str "Unable to elect a master"] == 1 } {
+			if { [is_substr $str "Too few remote sites"] == 1 } {
 				set none_electable 1
 				break
 			}

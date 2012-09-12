@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -188,6 +188,10 @@ namespace BerkeleyDB {
         /// Region size. 
         /// </summary>
         public ulong RegionSize { get { return (ulong)st.st_regsize.ToInt64(); } }
+        /// <summary>
+        /// Individual cache max. 
+        /// </summary>
+        public ulong RegionMax { get { return (ulong)st.st_regmax.ToInt64(); } }
         /// <summary>
         /// Stats for files open in the memory pool
         /// </summary>

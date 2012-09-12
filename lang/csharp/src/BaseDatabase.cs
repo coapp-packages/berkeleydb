@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -78,6 +78,10 @@ namespace BerkeleyDB {
             db.set_flags(cfg.flags);
             if (cfg.ByteOrder != ByteOrder.MACHINE)
                 db.set_lorder(cfg.ByteOrder.lorder);
+            if (cfg.NoWaitDbExclusiveLock == true)
+                db.set_lk_exclusive(1);
+            else if (cfg.NoWaitDbExclusiveLock == false)
+                db.set_lk_exclusive(0);
             if (cfg.pagesizeIsSet)
                 db.set_pagesize(cfg.PageSize);
             if (cfg.Priority != CachePriority.DEFAULT)
@@ -372,6 +376,29 @@ namespace BerkeleyDB {
             }
         }
         /// <summary>
+        /// If true, configure the database handle to obtain a write lock on the
+        /// entire database. When the database is opened it will immediately
+        /// throw <see cref="LockNotGrantedException"/> if it cannot obtain the
+        /// exclusive lock immediately. If False, configure the database handle
+        /// to obtain a write lock on the entire database. When the database is
+        /// opened, it will block until it can obtain the exclusive lock. If
+        /// null, do not configure the database handle to obtain a write lock on
+        /// the entire database.
+        /// </summary>
+        public bool? NoWaitDbExclusiveLock {
+            get {
+                int onoff = 0;
+                int nowait = 0;
+                bool? result = null;
+                db.get_lk_exclusive(ref onoff, ref nowait);
+                if (onoff > 0) {
+                    if (nowait > 0) result = true;
+                    else result = false;
+                }
+                return result;
+            }
+        }
+        /// <summary>
         /// The database's current page size.
         /// </summary>
         /// <remarks>  If <see cref="DatabaseConfig.PageSize"/> was not set by
@@ -450,6 +477,8 @@ namespace BerkeleyDB {
                         return DatabaseType.BTREE;
                     case DBTYPE.DB_HASH:
                         return DatabaseType.HASH;
+                    case DBTYPE.DB_HEAP:
+                        return DatabaseType.HEAP;
                     case DBTYPE.DB_QUEUE:
                         return DatabaseType.QUEUE;
                     case DBTYPE.DB_RECNO:
@@ -824,7 +853,7 @@ namespace BerkeleyDB {
         /// </returns>
         public
             KeyValuePair<DatabaseEntry, DatabaseEntry> Get(DatabaseEntry key) {
-            return Get(key, null, null);
+            return Get(key, (Transaction)null, (LockingInfo)null);
         }
         /// <summary>
         /// Retrieve a key/data pair from the database.  In the presence of
@@ -901,7 +930,128 @@ namespace BerkeleyDB {
             DatabaseEntry key, Transaction txn, LockingInfo info) {
             return Get(key, null, txn, info, 0);
         }
-
+        /// <summary>
+        /// Retrieve a key/data pair from the database.  In the presence of
+        /// duplicate key values, Get will return the first data item for
+        /// <paramref name="key"/>. If the data is a partial
+        /// <see cref="DatabaseEntry"/>, <see cref="DatabaseEntry.PartialLen"/>
+        /// bytes starting <see cref="DatabaseEntry.PartialOffset"/> bytes
+        /// from the beginning of the retrieved data record are returned as
+        /// if they comprise the entire record. If any or all of the specified
+        /// bytes do not exist in the record, Get is successful, and any 
+        /// existing bytes are returned.
+        /// </summary>
+        /// <param name="key">The key to search for</param>
+        /// <param name="data">The retrieved data</param>
+        /// <exception cref="NotFoundException">
+        /// A NotFoundException is thrown if <paramref name="key"/> is not in
+        /// the database. 
+        /// </exception>
+        /// <exception cref="KeyEmptyException">
+        /// A KeyEmptyException is thrown if the database is a
+        /// <see cref="QueueDatabase"/> or <see cref="RecnoDatabase"/> 
+        /// database and <paramref name="key"/> exists, but was never 
+        /// explicitly created by the application or was later deleted.
+        /// </exception>
+        /// <returns>
+        /// A <see cref="KeyValuePair{T,T}"/> whose Key
+        /// parameter is <paramref name="key"/> and whose Value parameter is
+        /// the partially retrieved bytes in the data.
+        /// </returns>
+        public KeyValuePair<DatabaseEntry, DatabaseEntry> Get(
+            DatabaseEntry key, DatabaseEntry data) {
+            return Get(key, data, null, null);
+        }
+        /// <summary>
+        /// Retrieve a key/data pair from the database. In the presence of
+        /// duplicate key values, Get will return the first data item for
+        /// <paramref name="key"/>. If the data is a partial
+        /// <see cref="DatabaseEntry"/>, <see cref="DatabaseEntry.PartialLen"/>
+        /// bytes starting <see cref="DatabaseEntry.PartialOffset"/> bytes
+        /// from the beginning of the retrieved data record are returned as
+        /// if they comprise the entire record. If any or all of the specified
+        /// bytes do not exist in the record, Get is successful, and any 
+        /// existing bytes are returned.
+        /// </summary>
+        /// <remarks>
+        /// If <paramref name="txn"/> is null and the operation occurs in
+        /// a transactional database, the operation will be implicitly 
+        /// transaction protected.
+        /// </remarks>
+        /// <param name="key">The key to search for</param>
+        /// <param name="data">The retrieved data</param>
+        /// <param name="txn">
+        /// <paramref name="txn"/> is a Transaction object returned from
+        /// <see cref="DatabaseEnvironment.BeginTransaction"/>; if
+        /// the operation is part of a Berkeley DB Concurrent Data Store
+        /// group, <paramref name="txn"/> is a handle returned from
+        /// <see cref="DatabaseEnvironment.BeginCDSGroup"/>; otherwise null.
+        /// </param>
+        /// <exception cref="NotFoundException">
+        /// A NotFoundException is thrown if <paramref name="key"/> is not in
+        /// the database. 
+        /// </exception>
+        /// <exception cref="KeyEmptyException">
+        /// A KeyEmptyException is thrown if the database is a
+        /// <see cref="QueueDatabase"/> or <see cref="RecnoDatabase"/> 
+        /// database and <paramref name="key"/> exists, but was never 
+        /// explicitly created by the application or was later deleted.
+        /// </exception>
+        /// <returns>
+        /// A <see cref="KeyValuePair{T,T}"/> whose Key
+        /// parameter is <paramref name="key"/> and whose Value parameter is
+        /// the partially retrieved bytes in the data.
+        /// </returns>
+        public KeyValuePair<DatabaseEntry, DatabaseEntry> Get(
+            DatabaseEntry key, DatabaseEntry data, Transaction txn) {
+            return Get(key, data, txn, null);
+        }
+        /// <summary>
+        /// Retrieve a key/data pair from the database.  In the presence of
+        /// duplicate key values, Get will return the first data item for
+        /// <paramref name="key"/>. If the data is a partial
+        /// <see cref="DatabaseEntry"/>, <see cref="DatabaseEntry.PartialLen"/>
+        /// bytes starting <see cref="DatabaseEntry.PartialOffset"/> bytes
+        /// from the beginning of the retrieved data record are returned as
+        /// if they comprise the entire record. If any or all of the specified
+        /// bytes do not exist in the record, Get is successful, and any 
+        /// existing bytes are returned.
+        /// </summary>
+        /// <remarks>
+        /// If <paramref name="txn"/> is null and the operation occurs in
+        /// a transactional database, the operation will be implicitly 
+        /// transaction protected.
+        /// </remarks>
+        /// <param name="key">The key to search for</param>
+        /// <param name="data">The retrieved data</param>
+        /// <param name="txn">
+        /// <paramref name="txn"/> is a Transaction object returned from
+        /// <see cref="DatabaseEnvironment.BeginTransaction"/>; if
+        /// the operation is part of a Berkeley DB Concurrent Data Store
+        /// group, <paramref name="txn"/> is a handle returned from
+        /// <see cref="DatabaseEnvironment.BeginCDSGroup"/>; otherwise null.
+        /// </param>
+        /// <param name="info">The locking behavior to use.</param>
+        /// <exception cref="NotFoundException">
+        /// A NotFoundException is thrown if <paramref name="key"/> is not in
+        /// the database. 
+        /// </exception>
+        /// <exception cref="KeyEmptyException">
+        /// A KeyEmptyException is thrown if the database is a
+        /// <see cref="QueueDatabase"/> or <see cref="RecnoDatabase"/> 
+        /// database and <paramref name="key"/> exists, but was never 
+        /// explicitly created by the application or was later deleted.
+        /// </exception>
+        /// <returns>
+        /// A <see cref="KeyValuePair{T,T}"/> whose Key
+        /// parameter is <paramref name="key"/> and whose Value parameter is
+        /// the partially retrieved bytes in the data.
+        /// </returns>
+        public KeyValuePair<DatabaseEntry, DatabaseEntry> Get(
+            DatabaseEntry key, DatabaseEntry data, Transaction txn,
+            LockingInfo info) {
+            return Get(key, data, txn, info, 0);
+        }
         /// <summary>
         /// Protected method to retrieve data from the underlying DB handle.
         /// </summary>
@@ -933,7 +1083,6 @@ namespace BerkeleyDB {
             db.get(Transaction.getDB_TXN(txn), key, data, flags);
             return new KeyValuePair<DatabaseEntry, DatabaseEntry>(key, data);
         }
-
 
         /// <summary>
         /// Retrieve a key/data pair from the database which matches
@@ -1052,8 +1201,9 @@ namespace BerkeleyDB {
         /// </remarks>
         /// <overloads>
         /// The statistical information is described by the
-        /// <see cref="BTreeStats"/>, <see cref="HashStats"/>,
-        /// <see cref="QueueStats"/>, and <see cref="RecnoStats"/> classes. 
+        /// <see cref="BTreeStats"/>, <see cref="HashStats"/>, 
+        /// <see cref="HeapStats"/>, <see cref="QueueStats"/>, and
+        /// <see cref="RecnoStats"/> classes. 
         /// </overloads>
         public void PrintFastStats() {
             PrintStats(false, true);
@@ -1078,8 +1228,9 @@ namespace BerkeleyDB {
         /// </summary>
         /// <overloads>
         /// The statistical information is described by the
-        /// <see cref="BTreeStats"/>, <see cref="HashStats"/>,
-        /// <see cref="QueueStats"/>, and <see cref="RecnoStats"/> classes. 
+        /// <see cref="BTreeStats"/>, <see cref="HashStats"/>, 
+        /// <see cref="HeapStats"/>, <see cref="QueueStats"/>, and
+        /// <see cref="RecnoStats"/> classes. 
         /// </overloads>
         public void PrintStats() {
             PrintStats(false, false);

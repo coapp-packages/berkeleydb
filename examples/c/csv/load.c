@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -115,7 +115,8 @@ input_load(input_fmt ifmt_arg, u_long version_arg)
 
 		memcpy(put_line + (field_count + 2), input_line, len);
 		data.data = put_line;
-		data.size = (field_count + 2) * sizeof(u_int32_t) + len;
+		data.size = (u_int32_t)
+			((field_count + 2) * sizeof(u_int32_t) + len);
 
 		if (verbose > 1)
 			(void)entry_print(

@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # TEST repmgr108
 # TEST Subordinate connections and processes should not trigger elections.
@@ -18,13 +18,15 @@ proc repmgr108 { } {
 	file mkdir [set mdir $testdir/MASTER]
 	file mkdir [set cdir $testdir/CLIENT]
 
-	make_dbconfig $mdir [set dbconfig {{rep_set_nsites 3}}]
-	make_dbconfig $cdir $dbconfig
+	make_dbconfig $mdir \
+            [list [list repmgr_site 127.0.0.1 $mport db_local_site on]]
+	make_dbconfig $cdir \
+            [list [list repmgr_site 127.0.0.1 $cport db_local_site on] \
+                 [list repmgr_site 127.0.0.1 $mport db_bootstrap_helper on]]
 
 	puts "\tRepmgr$tnum.a: Set up a pair of sites, two processes each."
 	set cmds {
 		"home $mdir"
-		"local $mport"
 		"output $testdir/m1output"
 		"open_env"
 		"start master"
@@ -33,20 +35,14 @@ proc repmgr108 { } {
 
 	set cmds {
 		"home $mdir"
-		"local $mport"
 		"output $testdir/m2output"
 		"open_env"
 		"start master"
 	}
 	set m2 [open_site_prog [subst $cmds]]
 
-	# Force subordinate client process to be the one to inform master of its
-	# address, to be sure there's a connection.  This shouldn't be
-	# necessary, but it's hard to verify this in a test.
-	# 
 	set cmds {
 		"home $cdir"
-		"local $cport"
 		"output $testdir/c1output"
 		"open_env"
 		"start client"
@@ -55,9 +51,7 @@ proc repmgr108 { } {
 
 	set cmds {
 		"home $cdir"
-		"local $cport"
 		"output $testdir/c2output"
-		"remote localhost $mport"
 		"open_env"
 		"start client"
 	}

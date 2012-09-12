@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1997, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1997, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -28,7 +28,8 @@ __os_mkdir(env, name, mode)
 	dbenv = env == NULL ? NULL : env->dbenv;
 	if (dbenv != NULL &&
 	    FLD_ISSET(dbenv->verbose, DB_VERB_FILEOPS | DB_VERB_FILEOPS_ALL))
-		__db_msg(env, "fileops: mkdir %s", name);
+		__db_msg(env, DB_STR_A("0129", "fileops: mkdir %s",
+		    "%s"), name);
 
 	/* Make the directory, with paranoid permissions. */
 #if defined(HAVE_VXWORKS)

@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2007, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2007, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -57,19 +57,14 @@ proc repmgr017_sub { method niter tnum largs } {
 	set logargs [adjust_logargs "in-memory"]
 	set txnargs [adjust_txnargs "in-memory"]
 
-	# Use different connection retry timeout values to handle any
-	# collisions from starting sites at the same time by retrying
-	# at different times.
-
 	# Open a master with a very small cache.
 	puts "\tRepmgr$tnum.a: Start a master with a very small cache."
 	set cacheargs "-cachesize {0 32768 1}"
 	set ma_envcmd "berkdb_env_noerr -create $logargs $txnargs $verbargs \
 	   -errpfx MASTER -rep -thread -rep_inmem_files -private $cacheargs"
 	set masterenv [eval $ma_envcmd]
-	$masterenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 20000000} \
-	    -local [list localhost [lindex $ports 0]] \
+	$masterenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 0]] \
 	    -start master
 
 	# Open a client
@@ -77,10 +72,9 @@ proc repmgr017_sub { method niter tnum largs } {
 	set cl_envcmd "berkdb_env_noerr -create $logargs $txnargs $verbargs \
 	    -errpfx CLIENT -rep -thread -rep_inmem_files -private"
 	set clientenv [eval $cl_envcmd]
-	$clientenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 10000000} \
-	    -local [list localhost [lindex $ports 1]] \
-	    -remote [list localhost [lindex $ports 0]] \
+	$clientenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 1]] \
+	    -remote [list 127.0.0.1 [lindex $ports 0]] \
 	    -start client
 	await_startup_done $clientenv
 
@@ -106,17 +100,15 @@ proc repmgr017_sub { method niter tnum largs } {
 	# anyway after closing the master environment with an error.
 	set cacheargs ""
 	set masterenv [eval $ma_envcmd -recover]
-	$masterenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 20000000} \
-	    -local [list localhost [lindex $ports 0]] \
+	$masterenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 0]] \
 	    -start master
 
 	# Open -recover to clear env region, including startup_done value.
 	set clientenv [eval $cl_envcmd -recover]
-	$clientenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 10000000} \
-	    -local [list localhost [lindex $ports 1]] \
-	    -remote [list localhost [lindex $ports 0]] \
+	$clientenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 1]] \
+	    -remote [list 127.0.0.1 [lindex $ports 0]] \
 	    -start client
 	await_startup_done $clientenv
 

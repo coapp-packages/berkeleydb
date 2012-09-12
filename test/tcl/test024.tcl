@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -24,6 +24,10 @@ proc test024 { method {nentries 10000} args} {
 	}
 	if { [string compare $omethod "-hash"] == 0 } {
 		puts "Test024 skipping for method HASH"
+		return
+	}
+	if { [string compare $omethod "-heap"] == 0 } {
+		puts "Test024 skipping for method HEAP"
 		return
 	}
 	if { [is_partitioned $args] } {

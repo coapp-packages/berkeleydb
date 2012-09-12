@@ -2618,7 +2618,10 @@ Java_SQLite_Vm_step(JNIEnv *env, jobject obj, jobject cb)
 
     if (v && v->vm && v->h) {
 	jthrowable exc;
-	int ret, tmp;
+	int ret;
+#if HAVE_SQLITE2
+	int tmp;
+#endif
 	long ncol = 0;
 #if HAVE_SQLITE3
 	freemem *freeproc = 0;
@@ -4295,6 +4298,33 @@ Java_SQLite_Stmt_column_1decltype(JNIEnv *env, jobject obj, jint col)
 }
 
 JNIEXPORT jstring JNICALL
+Java_SQLite_Stmt_column_1name(JNIEnv *env, jobject obj, jint col)
+{
+#if HAVE_SQLITE3 && HAVE_SQLITE_COMPILE
+    hvm *v = gethstmt(env, obj);
+
+    if (v && v->vm && v->h) {
+	int ncol = sqlite3_column_count((sqlite3_stmt *) v->vm);
+	const jchar *str;
+
+	if (col < 0 || col >= ncol) {
+	    throwex(env, "column out of bounds");
+	    return 0;
+	}
+	str = sqlite3_column_name16((sqlite3_stmt *) v->vm, col);
+	if (str) {
+	    return (*env)->NewString(env, str, jstrlen(str));
+	}
+	return 0;
+    }
+    throwex(env, "stmt already closed");
+#else
+    throwex(env, "unsupported");
+#endif
+    return 0;
+}
+
+JNIEXPORT jstring JNICALL
 Java_SQLite_Stmt_column_1origin_1name(JNIEnv *env, jobject obj, jint col)
 {
 #if HAVE_SQLITE3 && HAVE_SQLITE3_COLUMN_ORIGIN_NAME16
@@ -4891,7 +4921,7 @@ Java_SQLite_Database__1status(JNIEnv *env, jclass cls, jint op,
     int data[2] = { 0, 0 };
     jint jdata[2];
 #if HAVE_SQLITE3
-    ret = sqlite3_status(op, &data[0], &data[2], flag);
+    ret = sqlite3_status(op, &data[0], &data[1], flag);
     if (ret == SQLITE_OK) {
 	jdata[0] = data[0];
 	jdata[1] = data[1];
@@ -4921,7 +4951,7 @@ Java_SQLite_Database__1db_1status(JNIEnv *env, jobject obj, jint op,
 #else
 #if HAVE_SQLITE3
 	ret = sqlite3_db_status((sqlite3 *) h->sqlite, op, &data[0],
-				&data[2], flag);
+				&data[1], flag);
 #endif
 #endif
 	if (ret == SQLITE_OK) {

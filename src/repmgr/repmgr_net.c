@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -13,21 +13,14 @@
 
 /*
  * The functions in this module implement a simple wire protocol for
- * transmitting messages, both replication messages and our own internal control
- * messages.  The protocol is as follows:
- *
- *      1 byte          - message type  (defined in repmgr.h)
- *      4 bytes         - size of control
- *      4 bytes         - size of rec
- *      ? bytes         - control
- *      ? bytes         - rec
- *
- * where both sizes are 32-bit binary integers in network byte order.
- * Either control or rec can have zero length, but even in this case the
- * 4-byte length will be present.
- *     Putting both lengths right up at the front allows us to read in fewer
- * phases, and allows us to allocate buffer space for both parts (plus a wrapper
- * struct) at once.
+ * transmitting messages of various types.  Every message consists of a 9-byte
+ * header followed by a body (though the body could be 0-length).  The header is
+ * the marshaled form of the "msg_hdr" structure defined in repmgr.src.  The
+ * interpretation of header fields depends on message type, and is defined in
+ * repmgr.h.  But as a general principle, in all cases there is enough
+ * information in the header for us to know the total size of the body, and the
+ * total amount of memory we need to allocate for storing and processing the
+ * message.
  */
 
 /*
@@ -51,25 +44,208 @@
  * the iovecs pointers and lengths get adjusted after every partial write.
  */
 struct sending_msg {
-	REPMGR_IOVECS iovecs;
-	u_int8_t type;
-	u_int32_t control_size_buf, rec_size_buf;
+	REPMGR_IOVECS *iovecs;
 	REPMGR_FLAT *fmsg;
 };
 
+/*
+ * Context for a thread waiting for client acks for PERM message.  Passed from
+ * the send() function to the got_acks() predicate function, via
+ * __repmgr_await_cond().  The got_acks() function computes two potentially
+ * independent results: (1) do we have enough acks to stop waiting for more (the
+ * function return value, which triggers the behavior of await_cond()); and (2)
+ * whether the PERM message should be considered durable.
+ */
+struct repmgr_permanence {
+	DB_LSN lsn;		/* LSN whose ack this thread is waiting for. */
+	u_int threshold;	/* Number of client acks to wait for. */
+	u_int quorum;		/* Durability threshold for QUORUM policy. */
+	int policy;		/* Ack policy to be used for this txn. */
+	int is_durable;		/* Result flag. */
+};
+
+#ifdef	CONFIG_TEST
+static u_int fake_port __P((ENV *, u_int));
+#endif
 static int final_cleanup __P((ENV *, REPMGR_CONNECTION *, void *));
 static int flatten __P((ENV *, struct sending_msg *));
-static void remove_connection __P((ENV *, REPMGR_CONNECTION *));
-static int __repmgr_close_connection __P((ENV *, REPMGR_CONNECTION *));
-static int __repmgr_destroy_connection __P((ENV *, REPMGR_CONNECTION *));
-static void setup_sending_msg
-    __P((struct sending_msg *, u_int, const DBT *, const DBT *));
+static int got_acks __P((ENV *, void *));
+static int __repmgr_finish_connect
+    __P((ENV *, socket_t s, REPMGR_CONNECTION **));
+static int __repmgr_propose_version __P((ENV *, REPMGR_CONNECTION *));
+static int __repmgr_start_connect __P((ENV*, socket_t *, ADDRINFO *, int *));
+static void setup_sending_msg __P((ENV *,
+    struct sending_msg *, u_int8_t *, u_int, const DBT *, const DBT *));
 static int __repmgr_send_internal
-    __P((ENV *, REPMGR_CONNECTION *, struct sending_msg *, int));
+    __P((ENV *, REPMGR_CONNECTION *, struct sending_msg *, db_timeout_t));
 static int enqueue_msg
     __P((ENV *, REPMGR_CONNECTION *, struct sending_msg *, size_t));
-static REPMGR_SITE *__repmgr_available_site __P((ENV *, int));
+static REPMGR_SITE *connected_site __P((ENV *, int));
 static REPMGR_SITE *__repmgr_find_available_peer __P((ENV *));
+static int send_connection __P((ENV *, u_int,
+    REPMGR_CONNECTION *, struct sending_msg *, int *));
+
+/*
+ * Connects to the given network address, using blocking operations.  Any thread
+ * synchronization is the responsibility of the caller.
+ *
+ * PUBLIC: int __repmgr_connect __P((ENV *,
+ * PUBLIC:     repmgr_netaddr_t *, REPMGR_CONNECTION **, int *));
+ */
+int
+__repmgr_connect(env, netaddr, connp, errp)
+	ENV *env;
+	repmgr_netaddr_t *netaddr;
+	REPMGR_CONNECTION **connp;
+	int *errp;
+{
+	REPMGR_CONNECTION *conn;
+	ADDRINFO *ai0, *ai;
+	socket_t sock;
+	int err, ret;
+	u_int port;
+
+	COMPQUIET(err, 0);
+#ifdef	CONFIG_TEST
+	port = fake_port(env, netaddr->port);
+#else
+	port = netaddr->port;
+#endif
+	if ((ret = __repmgr_getaddr(env, netaddr->host, port, 0, &ai0)) != 0)
+		return (ret);
+
+	/*
+	 * Try each address on the list, until success.  Note that if several
+	 * addresses on the list produce retryable error, we can only pass back
+	 * to our caller the last one.
+	 */
+	for (ai = ai0; ai != NULL; ai = ai->ai_next) {
+		switch ((ret = __repmgr_start_connect(env, &sock, ai, &err))) {
+		case 0:
+			if ((ret = __repmgr_finish_connect(env,
+			    sock, &conn)) == 0)
+				*connp = conn;
+			else
+				(void)closesocket(sock);
+			goto out;
+		case DB_REP_UNAVAIL:
+			continue;
+		default:
+			goto out;
+		}
+	}
+
+out:
+	__os_freeaddrinfo(env, ai0);
+	if (ret == DB_REP_UNAVAIL) {
+		__repmgr_print_conn_err(env, netaddr, err);
+		*errp = err;
+	}
+	return (ret);
+}
+
+static int
+__repmgr_start_connect(env, socket_result, ai, err)
+	ENV *env;
+	socket_t *socket_result;
+	ADDRINFO *ai;
+	int *err;
+{
+	socket_t s;
+	int ret;
+
+	if ((s = socket(ai->ai_family,
+		    ai->ai_socktype, ai->ai_protocol)) == SOCKET_ERROR) {
+		ret = net_errno;
+		__db_err(env, ret, "create socket");
+		return (ret);
+	}
+
+	if (connect(s, ai->ai_addr, (socklen_t)ai->ai_addrlen) != 0) {
+		*err = net_errno;
+		(void)closesocket(s);
+		return (DB_REP_UNAVAIL);
+	}
+	RPRINT(env, (env, DB_VERB_REPMGR_MISC, "connection established"));
+
+	*socket_result = s;
+	return (0);
+}
+
+static int
+__repmgr_finish_connect(env, s, connp)
+	ENV *env;
+	socket_t s;
+	REPMGR_CONNECTION **connp;
+{
+	REPMGR_CONNECTION *conn;
+	int ret;
+
+	if ((ret = __repmgr_new_connection(env, &conn, s, CONN_CONNECTED)) != 0)
+		return (ret);
+
+	if ((ret = __repmgr_set_keepalive(env, conn)) == 0 &&
+	    (ret = __repmgr_propose_version(env, conn)) == 0)
+		*connp = conn;
+	else
+		(void)__repmgr_destroy_conn(env, conn);
+	return (ret);
+}
+
+static int
+__repmgr_propose_version(env, conn)
+	ENV *env;
+	REPMGR_CONNECTION *conn;
+{
+	DB_REP *db_rep;
+	__repmgr_version_proposal_args versions;
+	repmgr_netaddr_t *my_addr;
+	size_t hostname_len, rec_length;
+	u_int8_t *buf, *p;
+	int ret;
+
+	db_rep = env->rep_handle;
+	my_addr = &SITE_FROM_EID(db_rep->self_eid)->net_addr;
+
+	/*
+	 * In repmgr wire protocol version 1, a handshake message had a rec part
+	 * that looked like this:
+	 *
+	 *  +-----------------+----+
+	 *  |  host name ...  | \0 |
+	 *  +-----------------+----+
+	 *
+	 * To ensure its own sanity, the old repmgr would write a NUL into the
+	 * last byte of a received message, and then use normal C library string
+	 * operations (e.g., strlen, strcpy).
+	 *
+	 * Now, a version proposal has a rec part that looks like this:
+	 *
+	 *  +-----------------+----+------------------+------+
+	 *  |  host name ...  | \0 |  extra info ...  |  \0  |
+	 *  +-----------------+----+------------------+------+
+	 *
+	 * The "extra info" contains the version parameters, in marshaled form.
+	 */
+
+	hostname_len = strlen(my_addr->host);
+	rec_length = hostname_len + 1 +
+	    __REPMGR_VERSION_PROPOSAL_SIZE + 1;
+	if ((ret = __os_malloc(env, rec_length, &buf)) != 0)
+		goto out;
+	p = buf;
+	(void)strcpy((char*)p, my_addr->host);
+
+	p += hostname_len + 1;
+	versions.min = DB_REPMGR_MIN_VERSION;
+	versions.max = DB_REPMGR_VERSION;
+	__repmgr_version_proposal_marshal(env, &versions, p);
+
+	ret = __repmgr_send_v1_handshake(env, conn, buf, rec_length);
+	__os_free(env, buf);
+out:
+	return (ret);
+}
 
 /*
  * __repmgr_send --
@@ -91,23 +267,24 @@ __repmgr_send(dbenv, control, rec, lsnp, eid, flags)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 	REPMGR_SITE *site;
-	u_int available, nclients, needed, npeers_sent, nsites_sent, quorum;
-	int ret, t_ret;
+	struct repmgr_permanence perm;
+	db_timeout_t maxblock;
+	u_int32_t available, nclients, needed, npeers_sent, nsites_sent, quorum;
+	int missed_peer, policy, ret, t_ret;
 
 	env = dbenv->env;
 	db_rep = env->rep_handle;
 	rep = db_rep->region;
 	ret = 0;
-	COMPQUIET(quorum, 0);
 
 	LOCK_MUTEX(db_rep->mutex);
 
 	/*
-	 * If we're already "finished", we can't send anything.  This covers the
+	 * If we're already "stopped", we can't send anything.  This covers the
 	 * case where a bulk buffer is flushed at env close, or perhaps an
 	 * unexpected __repmgr_thread_failure.
 	 */
-	if (db_rep->finished) {
+	if (db_rep->repmgr_status == stopped) {
 		ret = DB_REP_UNAVAIL;
 		goto out;
 	}
@@ -121,8 +298,9 @@ __repmgr_send(dbenv, control, rec, lsnp, eid, flags)
 		goto out;
 
 	if (eid == DB_EID_BROADCAST) {
-		if ((ret = __repmgr_send_broadcast(env, REPMGR_REP_MESSAGE,
-		    control, rec, &nsites_sent, &npeers_sent)) != 0)
+		if ((ret = __repmgr_send_broadcast(env,
+		    REPMGR_REP_MESSAGE, control, rec,
+		    &nsites_sent, &npeers_sent, &missed_peer)) != 0)
 			goto out;
 	} else {
 		DB_ASSERT(env, IS_KNOWN_REMOTE_SITE(eid));
@@ -146,40 +324,113 @@ __repmgr_send(dbenv, control, rec, lsnp, eid, flags)
 		    (site = __repmgr_find_available_peer(env)) != NULL) {
 			VPRINT(env, (env, DB_VERB_REPMGR_MISC,
 			    "sending request to peer"));
-		} else if ((site = __repmgr_available_site(env, eid)) ==
-		    NULL) {
+		} else if ((site = connected_site(env, eid)) == NULL) {
 			RPRINT(env, (env, DB_VERB_REPMGR_MISC,
 			    "ignoring message sent to unavailable site"));
 			ret = DB_REP_UNAVAIL;
 			goto out;
 		}
 
-		conn = site->ref.conn;
-		/* Pass the "blockable" argument as TRUE. */
-		if ((ret = __repmgr_send_one(env, conn, REPMGR_REP_MESSAGE,
-		    control, rec, TRUE)) == DB_REP_UNAVAIL &&
-		    (t_ret = __repmgr_bust_connection(env, conn)) != 0)
-			ret = t_ret;
+		/*
+		 * In case the connection is clogged up and we have to wait for
+		 * space on the output queue, how long shall we wait?  We could
+		 * of course create a new timeout configuration type, so that
+		 * the application could set it directly.  But that would start
+		 * to overwhelm the user with too many choices to think about.
+		 * We already have an ACK timeout, which is the user's estimate
+		 * of how long it should take to send a message to the client,
+		 * have it be processed, and return a message back to us.  We
+		 * multiply that by the queue size, because that's how many
+		 * messages have to be swallowed up by the client before we're
+		 * able to start sending again (at least to a rough
+		 * approximation).
+		 */
+		maxblock = OUT_QUEUE_LIMIT *
+		    (rep->ack_timeout == 0 ?
+			DB_REPMGR_DEFAULT_ACK_TIMEOUT : rep->ack_timeout);
+
+		/*
+		 * Assign the conn struct pointer to a local variable ("conn"),
+		 * because the pointer in the site struct (ref.conn.in or
+		 * ref.conn.out) could get clobbered if the connection gets
+		 * busted in another thread during our send_one() call.  That
+		 * could happen if the outgoing half of the connection is
+		 * clogged and we decide to await_drain().
+		 */
+#undef	SEND_ONE_CONNECTION
+#define	SEND_ONE_CONNECTION(c)						  \
+		do {							  \
+			if ((conn = (c)) != NULL &&			  \
+			    IS_READY_STATE(conn->state) &&		  \
+			    (ret = __repmgr_send_one(env,		  \
+			    conn, REPMGR_REP_MESSAGE,			  \
+			    control, rec, maxblock)) == DB_REP_UNAVAIL && \
+			    (t_ret =					  \
+			    __repmgr_bust_connection(env, conn)) != 0)	  \
+				ret = t_ret;				  \
+		} while (0)
+
+		SEND_ONE_CONNECTION(site->ref.conn.in);
+		if (ret != 0 && ret != DB_REP_UNAVAIL)
+			goto out;
+		SEND_ONE_CONNECTION(site->ref.conn.out);
 		if (ret != 0)
 			goto out;
+#undef	SEND_ONE_CONNECTION
 
 		nsites_sent = 1;
-		npeers_sent = site->priority > 0 ? 1 : 0;
+		npeers_sent = F_ISSET(site, SITE_ELECTABLE) ? 1 : 0;
+		missed_peer = FALSE;
 	}
+
 	/*
-	 * Right now, nsites and npeers represent the (maximum) number of sites
-	 * we've attempted to begin sending the message to.  Of course we
-	 * haven't really received any ack's yet.  But since we've only sent to
-	 * nsites/npeers other sites, that's the maximum number of ack's we
-	 * could possibly expect.  If even that number fails to satisfy our PERM
-	 * policy, there's no point waiting for something that will never
-	 * happen.
+	 * Traditionally, each ack policy determines how many acks are needed to
+	 * constitute successful durability.  We would simply wait until we
+	 * collected that many acks, and if we got them it was success, or if we
+	 * timed out it was failure.  And if we knew from the start that we
+	 * hadn't even sent the message to enough sites to meet the "needed"
+	 * threshold, then there was no point in waiting.
+	 *     It's a different story for the ALL_AVAILABLE policy.  There the
+	 * decision to continue awaiting more acks is decoupled from the
+	 * durability question: we want to wait until we get acks from all sites
+	 * we sent to (though still within the timeout limit).
+	 *     So now we have to think of "needed" in a slightly more general
+	 * way: it's the threshold that controls how many acks we keep waiting
+	 * for.  It's usually still also controls the determination of the
+	 * durability result; except not for ALL_AVAILABLE.
 	 */
 	if (LF_ISSET(DB_REP_PERMANENT)) {
-		/* Number of sites in the group besides myself. */
-		nclients = __repmgr_get_nsites(db_rep) - 1;
+		/* Adjust so as not to count the local site, which is master. */
+		nclients = db_rep->region->config_nsites -1;
 
-		switch (rep->perm_policy) {
+		/*
+		 * When doing membership DB changes, avoid some impossible
+		 * situations.
+		 */
+		policy = rep->perm_policy;
+		switch (db_rep->active_gmdb_update) {
+		case gmdb_primary:
+			if (policy == DB_REPMGR_ACKS_ALL ||
+			    policy == DB_REPMGR_ACKS_ALL_PEERS)
+				policy = DB_REPMGR_ACKS_ALL_AVAILABLE;
+			else if (policy == DB_REPMGR_ACKS_QUORUM &&
+			    nclients == 1)
+				nclients = 0;
+			else if ((policy == DB_REPMGR_ACKS_ONE ||
+			    policy == DB_REPMGR_ACKS_ONE_PEER) &&
+			    nclients == 1) {
+				nclients = 0;
+				policy = DB_REPMGR_ACKS_QUORUM;
+			}
+			break;
+		case gmdb_secondary:
+			policy = DB_REPMGR_ACKS_NONE;
+			break;
+		case none:
+			break;
+		}
+		quorum = 0;
+		switch (policy) {
 		case DB_REPMGR_ACKS_NONE:
 			needed = 0;
 			COMPQUIET(available, 0);
@@ -225,7 +476,12 @@ __repmgr_send(dbenv, control, rec, lsnp, eid, flags)
 			 * definition of "quorum" we have to fudge the ack
 			 * calculation in this case: specifically, we need to
 			 * make sure that the client has received it in order
-			 * for us to consider it "perm".
+			 * for us to consider it "perm".  Thus, if nclients is
+			 * 1, needed should be 1.
+			 *
+			 * While we're at it, if nclients is 0 (a nascent
+			 * "group" consisting of nothing but a master), surely
+			 * the number of acks we need should be 0.
 			 *
 			 * Note that turning the usual strict behavior back on
 			 * in a 2-site group results in "0" as the number of
@@ -234,59 +490,147 @@ __repmgr_send(dbenv, control, rec, lsnp, eid, flags)
 			 * strange as it may seem!  This may well mean that in a
 			 * 2-site group the QUORUM policy is rarely the right
 			 * choice.
+			 *
+			 * When a GMDB update adds the second site, force
+			 * "strict" behavior: in that case nsites is 2, but the
+			 * new site is not yet allowed to contribute an ack.
 			 */
 			if (nclients > 1 ||
 			    FLD_ISSET(db_rep->region->config,
-			    REP_C_2SITE_STRICT))
-				needed = nclients / 2;
+			    REP_C_2SITE_STRICT) ||
+			    db_rep->active_gmdb_update == gmdb_primary)
+				quorum = nclients / 2;
 			else
-				needed = 1;
-			if (rep->perm_policy == DB_REPMGR_ACKS_ALL_AVAILABLE) {
-				quorum = needed;
-				needed = available = nsites_sent;
+				quorum = nclients;
+
+			if (policy == DB_REPMGR_ACKS_ALL_AVAILABLE) {
+				if (nsites_sent > 0)
+					needed = available = nsites_sent;
+				else {
+					ret = quorum > 0 ? DB_REP_UNAVAIL : 0;
+					goto out;
+				}
 			} else {
+				DB_ASSERT(env, policy == DB_REPMGR_ACKS_QUORUM);
+				needed = quorum;
 				available = npeers_sent;
-				quorum = 0;
+				if (npeers_sent < quorum && !missed_peer) {
+					/*
+					 * If we sent to all peers, it doesn't
+					 * matter how few there were.  This
+					 * derives from the definition of the
+					 * QUORUM policy: no possible subsequent
+					 * election can fail to include the
+					 * transaction.  If all electable sites
+					 * have the transaction, then it can't
+					 * be lost in an election, no matter how
+					 * few there are.
+					 */
+					needed = npeers_sent;
+				}
 			}
 			break;
 
 		default:
-			COMPQUIET(available, 0);
-			COMPQUIET(needed, 0);
-			(void)__db_unknown_path(env, "__repmgr_send");
-			break;
-		}
-		if (needed == 0)
-			goto out;
-		if (available < needed) {
-			ret = DB_REP_UNAVAIL;
+			ret = __db_unknown_path(env, "__repmgr_send");
 			goto out;
 		}
+		if (policy != DB_REPMGR_ACKS_ALL_AVAILABLE) {
+			/*
+			 * Skip the waiting if it is unnecessary, or if it would
+			 * be futile.  For most ack policies, these decisions
+			 * are straightforward, and can be computed in the
+			 * following generic way.  For ALL_AVAILABLE, skipping
+			 * is also possible, but it is decided earlier (above,
+			 * inside the "switch" statement).
+			 *
+			 * Note that for ALL, there is a surprising side-effect
+			 * if even one client is down.  It will not wait for
+			 * any acks and the running clients can fall further
+			 * and further behind the master.
+			 */
+			if (needed == 0)
+				goto out;
+			if (available < needed) {
+				ret = DB_REP_UNAVAIL;
+				goto out;
+			}
+		}
+
 		/* In ALL_PEERS case, display of "needed" might be confusing. */
 		VPRINT(env, (env, DB_VERB_REPMGR_MISC,
 		    "will await acknowledgement: need %u", needed));
-		ret = __repmgr_await_ack(env, lsnp, needed);
-		/*
-		 * If using ACKS_ALL_AVAILABLE and all possible sites acked,
-		 * only return success if we have a quorum minimum available
-		 * to ensure data integrity.
-		 */
-		if (ret == 0 &&
-		    rep->perm_policy == DB_REPMGR_ACKS_ALL_AVAILABLE &&
-		    available < quorum)
-			ret = DB_REP_UNAVAIL;
+		perm.lsn = *lsnp;
+		perm.threshold = needed;
+		perm.policy = policy;
+		perm.quorum = quorum;
+		perm.is_durable = FALSE;
+		ret = __repmgr_await_cond(env, got_acks,
+		    &perm, rep->ack_timeout, &db_rep->ack_waiters);
+		if (ret == 0 || ret == DB_TIMEOUT)
+			ret = perm.is_durable ? 0 : DB_REP_UNAVAIL;
 	}
 
 out:	UNLOCK_MUTEX(db_rep->mutex);
-	if (ret != 0 && LF_ISSET(DB_REP_PERMANENT)) {
-		STAT(db_rep->region->mstat.st_perm_failed++);
-		DB_EVENT(env, DB_EVENT_REP_PERM_FAILED, NULL);
+	if (LF_ISSET(DB_REP_PERMANENT)) {
+		if (ret != 0) {
+			switch (db_rep->active_gmdb_update) {
+			case none:
+				/*
+				 * Fire perm-failed event to the application as
+				 * usual; no other bookkeeping needed here.
+				 */
+				STAT(db_rep->region->mstat.st_perm_failed++);
+				DB_EVENT(env, DB_EVENT_REP_PERM_FAILED, NULL);
+				break;
+			case gmdb_primary:
+				/*
+				 * Since this is a membership DB operation,
+				 * refrain from bothering the application about
+				 * it (with an event that it wouldn't be
+				 * expecting), and make a note of the failure so
+				 * we can resolve it later.
+				 */
+				db_rep->limbo_failure = *lsnp;
+				 /* FALLTHROUGH */
+			case gmdb_secondary:
+				/* Merely refrain from firing event. */
+				RPRINT(env, (env, DB_VERB_REPMGR_MISC,
+				    "GMDB perm failure %d at [%lu][%lu]",
+				    (int)db_rep->active_gmdb_update,
+				    (u_long)lsnp->file, (u_long)lsnp->offset));
+				break;
+			}
+		} else if (db_rep->limbo_resolution_needed) {
+			/*
+			 * A previous membership DB operation failed, leaving us
+			 * "in limbo", but now some perm operation has completed
+			 * successfully.  Since the ack of any txn implies ack
+			 * of all txns that occur before it (in LSN order), we
+			 * now know that the previous failure can be resolved.
+			 * We can't do it here in this thread, so put a request
+			 * on the message processing queue to have it handled
+			 * later.
+			 */
+			db_rep->durable_lsn = *lsnp;
+			RPRINT(env, (env, DB_VERB_REPMGR_MISC,
+			 "perm success [%lu][%lu] with limbo resolution needed",
+			    (u_long)lsnp->file, (u_long)lsnp->offset));
+			db_rep->limbo_resolution_needed = FALSE;
+
+			/* Don't trump ret, even if it's zero. */
+			LOCK_MUTEX(db_rep->mutex);
+			if ((t_ret = __repmgr_defer_op(env,
+			    REPMGR_RESOLVE_LIMBO)) != 0)
+				__db_err(env, t_ret, "repmgr_defer_op");
+			UNLOCK_MUTEX(db_rep->mutex);
+		}
 	}
 	return (ret);
 }
 
 static REPMGR_SITE *
-__repmgr_available_site(env, eid)
+connected_site(env, eid)
 	ENV *env;
 	int eid;
 {
@@ -294,8 +638,9 @@ __repmgr_available_site(env, eid)
 	REPMGR_SITE *site;
 
 	db_rep = env->rep_handle;
+	DB_ASSERT(env, IS_VALID_EID(eid));
 	site = SITE_FROM_EID(eid);
-	if (IS_SITE_HANDSHAKEN(site))
+	if (site->state == SITE_CONNECTED)
 		return (site);
 	return (NULL);
 }
@@ -312,7 +657,6 @@ __repmgr_sync_siteaddr(env)
 {
 	DB_REP *db_rep;
 	REP *rep;
-	char *host;
 	u_int added;
 	int ret;
 
@@ -323,18 +667,14 @@ __repmgr_sync_siteaddr(env)
 
 	MUTEX_LOCK(env, rep->mtx_repmgr);
 
-	if (db_rep->my_addr.host == NULL && rep->my_addr.host != INVALID_ROFF) {
-		host = R_ADDR(env->reginfo, rep->my_addr.host);
-		if ((ret = __repmgr_pack_netaddr(env,
-		    host, rep->my_addr.port, NULL, &db_rep->my_addr)) != 0)
-			goto out;
-	}
+	if (!IS_VALID_EID(db_rep->self_eid))
+		db_rep->self_eid = rep->self_eid;
 
 	added = db_rep->site_cnt;
 	if ((ret = __repmgr_copy_in_added_sites(env)) == 0)
-		ret = __repmgr_init_new_sites(env, added, db_rep->site_cnt);
+		ret = __repmgr_init_new_sites(env, (int)added,
+		    (int)db_rep->site_cnt);
 
-out:
 	MUTEX_UNLOCK(env, rep->mtx_repmgr);
 	return (ret);
 }
@@ -348,30 +688,27 @@ out:
  * !!!
  * Caller must hold env->mutex.
  * PUBLIC: int __repmgr_send_broadcast __P((ENV *, u_int,
- * PUBLIC:    const DBT *, const DBT *, u_int *, u_int *));
+ * PUBLIC:    const DBT *, const DBT *, u_int *, u_int *, int *));
  */
 int
-__repmgr_send_broadcast(env, type, control, rec, nsitesp, npeersp)
+__repmgr_send_broadcast(env, type, control, rec, nsitesp, npeersp, missingp)
 	ENV *env;
 	u_int type;
 	const DBT *control, *rec;
 	u_int *nsitesp, *npeersp;
+	int *missingp;
 {
 	DB_REP *db_rep;
+	REP *rep;
 	struct sending_msg msg;
-	REPMGR_CONNECTION *conn;
 	REPMGR_SITE *site;
-	u_int eid, nsites, npeers;
-	int ret;
-
-	static const u_int version_max_msg_type[] = {
-		0,
-		REPMGR_MAX_V1_MSG_TYPE,
-		REPMGR_MAX_V2_MSG_TYPE,
-		REPMGR_MAX_V3_MSG_TYPE
-	};
+	REPMGR_IOVECS iovecs;
+	u_int8_t msg_hdr_buf[__REPMGR_MSG_HDR_SIZE];
+	u_int nsites, npeers;
+	int eid, full_member, has_missing_peer, ret, sent1, sent2;
 
 	db_rep = env->rep_handle;
+	rep = db_rep->region;
 
 	/*
 	 * Sending a broadcast is quick, because we allow no blocking.  So it
@@ -382,66 +719,137 @@ __repmgr_send_broadcast(env, type, control, rec, nsitesp, npeersp)
 	 */
 	__os_gettime(env, &db_rep->last_bcast, 1);
 
-	setup_sending_msg(&msg, type, control, rec);
+	msg.iovecs = &iovecs;
+	setup_sending_msg(env, &msg, msg_hdr_buf, type, control, rec);
 	nsites = npeers = 0;
+	has_missing_peer = FALSE;
 
 	/* Send to (only the main connection with) every site. */
-	for (eid = 0; eid < db_rep->site_cnt; eid++) {
-		if ((site = __repmgr_available_site(env, (int)eid)) == NULL)
-			continue;
-		conn = site->ref.conn;
-
-		DB_ASSERT(env, IS_VALID_EID(conn->eid) &&
-		    conn->version > 0 &&
-		    conn->version <= DB_REPMGR_VERSION);
+	FOR_EACH_REMOTE_SITE_INDEX(eid) {
+		sent1 = sent2 = FALSE;
+		site = SITE_FROM_EID(eid);
 
 		/*
-		 * Skip if the type of message we're sending is beyond the range
-		 * of known message types for this connection's version.
-		 *
-		 * !!!
-		 * Don't be misled by the apparent generality of this simple
-		 * test.  It works currently, because the only kinds of messages
-		 * that we broadcast are REP_MESSAGE and HEARTBEAT.  But in the
-		 * future other kinds of messages might require more intricate
-		 * per-connection-version customization (for example,
-		 * per-version message format conversion, addition of new
-		 * fields, etc.).
+		 * Exclude non-member sites, unless we're the master, since it's
+		 * useful to keep letting a removed site see updates so that it
+		 * learns of its own removal, and will know to rejoin at its
+		 * next reboot.
 		 */
-		if (type > version_max_msg_type[conn->version])
-			continue;
+		if (site->membership == SITE_PRESENT)
+			full_member = TRUE;
+		else {
+			full_member = FALSE;
+			if (rep->master_id != db_rep->self_eid)
+				goto next;
+		}
 
 		/*
-		 * Broadcast messages are either application threads committing
-		 * transactions, or replication status message that we can
-		 * afford to lose.  So don't allow blocking for them (pass
-		 * "blockable" argument as FALSE).
+		 * Send message on either or both main connections, as
+		 * available.
 		 */
-		if ((ret = __repmgr_send_internal(env,
-		    conn, &msg, FALSE)) == 0) {
-			site = SITE_FROM_EID(conn->eid);
-			nsites++;
-			if (site->priority > 0)
-				npeers++;
-		} else if (ret == DB_TIMEOUT) {
-			/*
-			 * Couldn't send because of a full output queue.
-			 * Incrementing counters would be wrong, but it's
-			 * otherwise OK in the sense that the connection isn't
-			 * definitively known to be broken, and rep protocol
-			 * always allows us to drop a message if we have to.
-			 */
-			ret = 0;
-		} else if (ret == DB_REP_UNAVAIL) {
-			if ((ret = __repmgr_bust_connection(env, conn)) != 0)
-				return (ret);
-		} else
+		if ((ret = send_connection(env, type,
+		    site->ref.conn.in, &msg, &sent1)) != 0)
 			return (ret);
+		if ((ret = send_connection(env, type,
+		    site->ref.conn.out, &msg, &sent2)) != 0)
+			return (ret);
+next:
+		/*
+		 * Count how many full-fledged member sites we sent to, and how
+		 * many of those were electable peers.  These values will be
+		 * used by the caller to manage waiting for acks.  Ignore
+		 * non-full-fledged member sites because we don't accept acks
+		 * from them.
+		 */
+		if (full_member) {
+			if (sent1 || sent2) {
+				nsites++;
+				if (F_ISSET(site, SITE_ELECTABLE))
+					npeers++;
+			} else {
+				/*
+				 * Keep track of whether any of the sites we
+				 * failed to send to was an electable peer.  If
+				 * we don't know a site's electability yet, we
+				 * assume the worst in order to be safe.
+				 */
+				if (!F_ISSET(site, SITE_HAS_PRIO) ||
+				    F_ISSET(site, SITE_ELECTABLE))
+					has_missing_peer = TRUE;
+			}
+		}
 	}
 
 	*nsitesp = nsites;
 	*npeersp = npeers;
+	*missingp = has_missing_peer;
 	return (0);
+}
+
+static int
+send_connection(env, type, conn, msg, sent)
+	ENV *env;
+	u_int type;
+	REPMGR_CONNECTION *conn;
+	struct sending_msg *msg;
+	int *sent;
+{
+	DB_REP *db_rep;
+	int ret;
+
+	static const u_int version_max_msg_type[] = {
+		0,
+		REPMGR_MAX_V1_MSG_TYPE,
+		REPMGR_MAX_V2_MSG_TYPE,
+		REPMGR_MAX_V3_MSG_TYPE,
+		REPMGR_MAX_V4_MSG_TYPE
+	};
+
+	db_rep = env->rep_handle;
+	*sent = FALSE;
+	if (conn == NULL || !IS_READY_STATE(conn->state))
+		return (0);
+
+	DB_ASSERT(env, IS_KNOWN_REMOTE_SITE(conn->eid) &&
+	    conn->version > 0 &&
+	    conn->version <= DB_REPMGR_VERSION);
+
+	/*
+	 * Skip if the type of message we're sending is beyond the range
+	 * of known message types for this connection's version.
+	 *
+	 * !!!
+	 * Don't be misled by the apparent generality of this simple
+	 * test.  It works currently, because the only kinds of messages
+	 * that we broadcast are REP_MESSAGE and HEARTBEAT.  But in the
+	 * future other kinds of messages might require more intricate
+	 * per-connection-version customization (for example,
+	 * per-version message format conversion, addition of new
+	 * fields, etc.).
+	 */
+	if (type > version_max_msg_type[conn->version])
+		return (0);
+
+	/*
+	 * Broadcast messages are either application threads committing
+	 * transactions, or replication status message that we can
+	 * afford to lose.  So don't allow blocking for them (pass
+	 * maxblock argument as 0).
+	 */
+	if ((ret = __repmgr_send_internal(env, conn, msg, 0)) == 0)
+		*sent = TRUE;
+	else if (ret == DB_TIMEOUT) {
+		/*
+		 * Couldn't send because of a full output queue.
+		 * Indicating that we sent it would be wrong, but it's
+		 * otherwise OK in the sense that the connection isn't
+		 * definitively known to be broken, and rep protocol
+		 * always allows us to drop a message if we have to.
+		 */
+		ret = 0;
+	} else if (ret == DB_REP_UNAVAIL)
+		ret = __repmgr_bust_connection(env, conn);
+	return (ret);
 }
 
 /*
@@ -456,24 +864,88 @@ __repmgr_send_broadcast(env, type, control, rec, nsitesp, npeersp)
  * intersperse writes that are part of two single messages.
  *
  * PUBLIC: int __repmgr_send_one __P((ENV *, REPMGR_CONNECTION *,
- * PUBLIC:    u_int, const DBT *, const DBT *, int));
+ * PUBLIC:    u_int, const DBT *, const DBT *, db_timeout_t));
  */
 int
-__repmgr_send_one(env, conn, msg_type, control, rec, blockable)
+__repmgr_send_one(env, conn, msg_type, control, rec, maxblock)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 	u_int msg_type;
 	const DBT *control, *rec;
-	int blockable;
+	db_timeout_t maxblock;
+{
+	struct sending_msg msg;
+	REPMGR_IOVECS iovecs;
+	u_int8_t hdr_buf[__REPMGR_MSG_HDR_SIZE];
+	int ret;
+
+	msg.iovecs = &iovecs;
+	setup_sending_msg(env, &msg, hdr_buf, msg_type, control, rec);
+	if ((ret =
+	    __repmgr_send_internal(env, conn, &msg, maxblock)) == DB_TIMEOUT &&
+	    maxblock == 0)
+		ret = 0;
+	return (ret);
+}
+
+/*
+ * PUBLIC: int __repmgr_send_many __P((ENV *,
+ * PUBLIC:     REPMGR_CONNECTION *, REPMGR_IOVECS *, db_timeout_t));
+ */
+int
+__repmgr_send_many(env, conn, iovecs, maxblock)
+	ENV *env;
+	REPMGR_CONNECTION *conn;
+	REPMGR_IOVECS *iovecs;
+	db_timeout_t maxblock;
 {
 	struct sending_msg msg;
 	int ret;
 
-	setup_sending_msg(&msg, msg_type, control, rec);
-	if ((ret = __repmgr_send_internal(env, conn, &msg, blockable))
-	    == DB_TIMEOUT && !blockable)
+	if (conn->state == CONN_DEFUNCT)
+		return (DB_REP_UNAVAIL);
+	msg.iovecs = iovecs;
+	msg.fmsg = NULL;
+	if ((ret =
+	    __repmgr_send_internal(env, conn, &msg, maxblock)) == DB_TIMEOUT &&
+	    maxblock == 0)
 		ret = 0;
+	if (ret != 0 && ret != DB_TIMEOUT)
+		(void)__repmgr_disable_connection(env, conn);
 	return (ret);
+}
+
+/*
+ * PUBLIC: int __repmgr_send_own_msg __P((ENV *,
+ * PUBLIC:     REPMGR_CONNECTION *, u_int32_t, u_int8_t *, u_int32_t));
+ */
+int
+__repmgr_send_own_msg(env, conn, type, buf, len)
+	ENV *env;
+	REPMGR_CONNECTION *conn;
+	u_int8_t *buf;
+	u_int32_t len, type;
+{
+	REPMGR_IOVECS iovecs;
+	struct sending_msg msg;
+	__repmgr_msg_hdr_args msg_hdr;
+	u_int8_t hdr_buf[__REPMGR_MSG_HDR_SIZE];
+
+	if (conn->version < OWN_MIN_VERSION)
+		return (0);
+	msg_hdr.type = REPMGR_OWN_MSG;
+	REPMGR_OWN_BUF_SIZE(msg_hdr) = len;
+	REPMGR_OWN_MSG_TYPE(msg_hdr) = type;
+	__repmgr_msg_hdr_marshal(env, &msg_hdr, hdr_buf);
+
+	__repmgr_iovec_init(&iovecs);
+	__repmgr_add_buffer(&iovecs, hdr_buf, __REPMGR_MSG_HDR_SIZE);
+	if (len > 0)
+		__repmgr_add_buffer(&iovecs, buf, len);
+
+	msg.iovecs = &iovecs;
+	msg.fmsg = NULL;
+	return (__repmgr_send_internal(env, conn, &msg, 0));
 }
 
 /*
@@ -486,37 +958,22 @@ __repmgr_send_one(env, conn, msg_type, control, rec, blockable)
  * almost always get a flood of messages that instantly fills our queue, so
  * blocking improves performance (by avoiding the need for the client to
  * re-request).
- *
- * How long shall we wait?  We could of course create a new timeout
- * configuration type, so that the application could set it directly.  But that
- * would start to overwhelm the user with too many choices to think about.  We
- * already have an ACK timeout, which is the user's estimate of how long it
- * should take to send a message to the client, have it be processed, and return
- * a message back to us.  We multiply that by the queue size, because that's how
- * many messages have to be swallowed up by the client before we're able to
- * start sending again (at least to a rough approximation).
  */
 static int
-__repmgr_send_internal(env, conn, msg, blockable)
+__repmgr_send_internal(env, conn, msg, maxblock)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 	struct sending_msg *msg;
-	int blockable;
+	db_timeout_t maxblock;
 {
 	DB_REP *db_rep;
-	REP *rep;
-	REPMGR_IOVECS iovecs;
 	SITE_STRING_BUFFER buffer;
-	db_timeout_t drain_to;
 	int ret;
-	size_t nw;
 	size_t total_written;
 
 	db_rep = env->rep_handle;
-	rep = db_rep->region;
 
-	DB_ASSERT(env,
-	    conn->state != CONN_CONNECTING && conn->state != CONN_DEFUNCT);
+	DB_ASSERT(env, conn->state != CONN_DEFUNCT);
 	if (!STAILQ_EMPTY(&conn->outbound_queue)) {
 		/*
 		 * Output to this site is currently owned by the select()
@@ -525,25 +982,18 @@ __repmgr_send_internal(env, conn, msg, blockable)
 		 */
 		VPRINT(env, (env, DB_VERB_REPMGR_MISC,
 		    "msg to %s to be queued",
-		    __repmgr_format_eid_loc(env->rep_handle,
-		    conn->eid, buffer)));
+		    __repmgr_format_eid_loc(db_rep, conn, buffer)));
 		if (conn->out_queue_length >= OUT_QUEUE_LIMIT &&
-		    blockable && conn->state != CONN_CONGESTED) {
+		    maxblock > 0 && conn->state != CONN_CONGESTED) {
 			VPRINT(env, (env, DB_VERB_REPMGR_MISC,
-			    "block msg thread, await queue space"));
-
-			if ((drain_to = rep->ack_timeout) == 0)
-				drain_to = DB_REPMGR_DEFAULT_ACK_TIMEOUT;
-			VPRINT(env, (env, DB_VERB_REPMGR_MISC,
-			    "will await drain"));
-			conn->blockers++;
-			ret = __repmgr_await_drain(env,
-			    conn, drain_to * OUT_QUEUE_LIMIT);
-			conn->blockers--;
+			    "block thread, awaiting output queue space"));
+			conn->ref_count++;
+			ret = __repmgr_await_drain(env, conn, maxblock);
+			conn->ref_count--;
 			VPRINT(env, (env, DB_VERB_REPMGR_MISC,
 			    "drain returned %d (%d,%d)", ret,
-			    db_rep->finished, conn->out_queue_length));
-			if (db_rep->finished)
+			    db_rep->repmgr_status, conn->out_queue_length));
+			if (db_rep->repmgr_status == stopped)
 				return (DB_TIMEOUT);
 			if (ret != 0)
 				return (ret);
@@ -561,22 +1011,9 @@ __repmgr_send_internal(env, conn, msg, blockable)
 		}
 	}
 empty:
-
-	/*
-	 * Send as much data to the site as we can, without blocking.  Keep
-	 * writing as long as we're making some progress.  Make a scratch copy
-	 * of iovecs for our use, since we destroy it in the process of
-	 * adjusting pointers after each partial I/O.
-	 */
-	memcpy(&iovecs, &msg->iovecs, sizeof(iovecs));
-	total_written = 0;
-	while ((ret = __repmgr_writev(conn->fd, &iovecs.vectors[iovecs.offset],
-	    iovecs.count-iovecs.offset, &nw)) == 0) {
-		total_written += nw;
-		if (__repmgr_update_consumed(&iovecs, nw)) /* all written */
-			return (0);
-	}
-
+	if ((ret = __repmgr_write_iovecs(env,
+	    conn, msg->iovecs, &total_written)) == 0)
+		return (0);
 	switch (ret) {
 	case WOULDBLOCK:
 #if defined(DB_REPMGR_EAGAIN) && DB_REPMGR_EAGAIN != WOULDBLOCK
@@ -587,14 +1024,14 @@ empty:
 #ifdef EBADF
 		DB_ASSERT(env, ret != EBADF);
 #endif
-		__db_err(env, ret, "socket writing failure");
+		__repmgr_fire_conn_err_event(env, conn, ret);
 		STAT(env->rep_handle->region->mstat.st_connection_drop++);
 		return (DB_REP_UNAVAIL);
 	}
 
 	VPRINT(env, (env, DB_VERB_REPMGR_MISC, "wrote only %lu bytes to %s",
 	    (u_long)total_written,
-	    __repmgr_format_eid_loc(env->rep_handle, conn->eid, buffer)));
+	    __repmgr_format_eid_loc(db_rep, conn, buffer)));
 	/*
 	 * We can't send any more without blocking: queue (a pointer to) a
 	 * "flattened" copy of the message, so that the select() thread will
@@ -612,90 +1049,140 @@ empty:
 	 * implies that the select() thread is already managing ownership of
 	 * this connection.
 	 */
-#ifdef DB_WIN32
-	if (WSAEventSelect(conn->fd, conn->event_object,
-	    FD_READ|FD_WRITE|FD_CLOSE) == SOCKET_ERROR) {
-		ret = net_errno;
-		__db_err(env, ret, "can't add FD_WRITE event bit");
-		return (ret);
-	}
-#endif
 	return (__repmgr_wake_main_thread(env));
 }
 
 /*
- * PUBLIC: int __repmgr_is_permanent __P((ENV *, const DB_LSN *, u_int));
+ * PUBLIC: int __repmgr_write_iovecs __P((ENV *, REPMGR_CONNECTION *,
+ * PUBLIC:     REPMGR_IOVECS *, size_t *));
+ */
+int
+__repmgr_write_iovecs(env, conn, iovecs, writtenp)
+	ENV *env;
+	REPMGR_CONNECTION *conn;
+	REPMGR_IOVECS *iovecs;
+	size_t *writtenp;
+{
+	REPMGR_IOVECS iovec_buf, *v;
+	size_t nw, sz, total_written;
+	int ret;
+
+	/*
+	 * Send as much data to the site as we can, without blocking.  Keep
+	 * writing as long as we're making some progress.
+	 *
+	 * Make a scratch copy of iovecs for our use, since we destroy it in the
+	 * process of adjusting pointers after each partial I/O.  The minimal
+	 * REPMGR_IOVECS struct template is usually enough.  But for app
+	 * messages that need more than 3 segments we allocate a separate
+	 * buffer.
+	 */
+	if (iovecs->count <= MIN_IOVEC) {
+		v = &iovec_buf;
+		sz = sizeof(iovec_buf);
+	} else {
+		sz = (size_t)REPMGR_IOVECS_ALLOC_SZ((u_int)iovecs->count);
+		if ((ret = __os_malloc(env, sz, &v)) != 0)
+			return (ret);
+	}
+	memcpy(v, iovecs, sz);
+
+	total_written = 0;
+	while ((ret = __repmgr_writev(conn->fd, &v->vectors[v->offset],
+	    v->count-v->offset, &nw)) == 0) {
+		total_written += nw;
+		if (__repmgr_update_consumed(v, nw)) /* all written */
+			break;
+	}
+	*writtenp = total_written;
+	if (v != &iovec_buf)
+		__os_free(env, v);
+	return (ret);
+}
+
+/*
+ * Count up how many sites have ack'ed the given LSN.
  *
- * Count up how many sites have ack'ed the given LSN.  Returns TRUE if enough
- * sites have ack'ed; FALSE otherwise.
+ * Computes two results: the main result (function's return code) is a boolean
+ * flag indicating whether we've gotten all the acks we need and can therefore
+ * stop waiting for more.  The perm->is_durable field determines whether we got
+ * enough acks to consider the transaction durably replicated.  These two
+ * results are almost always the same, except when using the ALL_AVAILABLE
+ * policy.
  *
  * !!!
  * Caller must hold the mutex.
  */
-int
-__repmgr_is_permanent(env, lsnp, needed)
+static int
+got_acks(env, context)
 	ENV *env;
-	const DB_LSN *lsnp;
-	u_int needed;
+	void *context;
 {
 	DB_REP *db_rep;
-	REP *rep;
 	REPMGR_SITE *site;
-	u_int eid, nsites, npeers;
-	int is_perm, has_missing_peer;
+	struct repmgr_permanence *perm;
+	u_int sites_acked, peers_acked;
+	int done, eid, has_unacked_peer, is_perm, policy;
 
 	db_rep = env->rep_handle;
-	rep = db_rep->region;
+	perm = context;
+	policy = perm->policy;
 
-	if (rep->perm_policy == DB_REPMGR_ACKS_NONE)
-		return (TRUE);
-
-	nsites = npeers = 0;
-	has_missing_peer = FALSE;
-	for (eid = 0; eid < db_rep->site_cnt; eid++) {
+	sites_acked = peers_acked = 0;
+	has_unacked_peer = FALSE;
+	FOR_EACH_REMOTE_SITE_INDEX(eid) {
 		site = SITE_FROM_EID(eid);
+		if (site->membership != SITE_PRESENT)
+			continue;
 		if (!F_ISSET(site, SITE_HAS_PRIO)) {
 			/*
 			 * Never connected to this site: since we can't know
 			 * whether it's a peer, assume the worst.
 			 */
-			has_missing_peer = TRUE;
+			has_unacked_peer = TRUE;
 			continue;
 		}
 
-		if (LOG_COMPARE(&site->max_ack, lsnp) >= 0) {
-			nsites++;
-			if (site->priority > 0)
-				npeers++;
+		if (LOG_COMPARE(&site->max_ack, &perm->lsn) >= 0) {
+			sites_acked++;
+			if (F_ISSET(site, SITE_ELECTABLE))
+				peers_acked++;
 		} else {
 			/* This site hasn't ack'ed the message. */
-			if (site->priority > 0)
-				has_missing_peer = TRUE;
+			if (F_ISSET(site, SITE_ELECTABLE))
+				has_unacked_peer = TRUE;
 		}
 	}
+	VPRINT(env, (env, DB_VERB_REPMGR_MISC,
+		"checking perm result, %lu, %lu, %d",
+		(u_long)sites_acked, (u_long)peers_acked, has_unacked_peer));
 
-	switch (rep->perm_policy) {
+	switch (policy) {
 	case DB_REPMGR_ACKS_ALL:
-	case DB_REPMGR_ACKS_ALL_AVAILABLE:
 	case DB_REPMGR_ACKS_ONE:
-		is_perm = (nsites >= needed);
+		is_perm = (sites_acked >= perm->threshold);
 		break;
 	case DB_REPMGR_ACKS_ONE_PEER:
+		is_perm = (peers_acked >= perm->threshold);
+		break;
 	case DB_REPMGR_ACKS_QUORUM:
-		is_perm = (npeers >= needed);
+	case DB_REPMGR_ACKS_ALL_AVAILABLE:
+		is_perm = (peers_acked >= perm->quorum) || !has_unacked_peer;
 		break;
 	case DB_REPMGR_ACKS_ALL_PEERS:
-		if (db_rep->site_cnt < __repmgr_get_nsites(db_rep) - 1) {
-			/* Assume missing site might be a peer. */
-			has_missing_peer = TRUE;
-		}
-		is_perm = !has_missing_peer;
+		is_perm = !has_unacked_peer;
 		break;
 	default:
 		is_perm = FALSE;
-		(void)__db_unknown_path(env, "__repmgr_is_permanent");
+		(void)__db_unknown_path(env, "got_acks");
 	}
-	return (is_perm);
+	if (is_perm)
+		perm->is_durable = TRUE;
+	if (policy == DB_REPMGR_ACKS_ALL_AVAILABLE)
+		done = sites_acked >= perm->threshold;
+	else
+		done = is_perm;
+	return (done);
 }
 
 /*
@@ -703,6 +1190,8 @@ __repmgr_is_permanent(env, lsnp, needed)
  * action.  Note that we don't actually close and clean up the connection here;
  * that happens later, in the select() thread main loop.  See further
  * explanation at function __repmgr_disable_connection().
+ *
+ * Idempotent.
  *
  * PUBLIC: int __repmgr_bust_connection __P((ENV *, REPMGR_CONNECTION *));
  *
@@ -718,98 +1207,106 @@ __repmgr_bust_connection(env, conn)
 	REP *rep;
 	REPMGR_SITE *site;
 	u_int32_t flags;
-	int connecting, ret, subordinate_conn, eid;
+	int ret, eid;
 
 	db_rep = env->rep_handle;
 	rep = db_rep->region;
-	ret = 0;
 
+	if (conn->state == CONN_DEFUNCT)
+		return (0);
 	eid = conn->eid;
-	connecting = (conn->state == CONN_CONNECTING);
-
-	__repmgr_disable_connection(env, conn);
+	if ((ret = __repmgr_disable_connection(env, conn)) != 0)
+		return (ret);
 
 	/*
-	 * Any sort of connection, in any active state, could produce an error.
-	 * But when we're done DEFUNCT-ifying it here it should end up on the
-	 * orphans list.  So, move it if it's not already there.
+	 * When we have lost the connection to another site, take any/all
+	 * appropriate recovery steps.  But what does it mean to lose "the"
+	 * connection, now that we actually have various different kinds of
+	 * connection?
+	 *
+	 * 1. We're only talking about "rep" connections.  Connections backing
+	 *    user channels aren't of concern here.
+	 * 2. Subordinate connections are also not of concern here.
+	 * 3. If we have two "main" connections with a given remote site (one
+	 *    incoming and the other outgoing), then if we lose one we still
+	 *    have the other.  So, we still "have a connection" with the remote
+	 *    site.
+	 *
+	 * Finally, the appropriate recovery steps also depend on the current
+	 * replication role (master/client) of both the local site and the
+	 * remote site.
 	 */
-	if (IS_VALID_EID(eid)) {
-		site = SITE_FROM_EID(eid);
-		subordinate_conn = (conn != site->ref.conn);
+	if (conn->type != REP_CONNECTION || !IS_KNOWN_REMOTE_SITE(eid))
+		goto out;
 
-		/* Note: schedule_connection_attempt wakes the main thread. */
-		if (!subordinate_conn &&
-		    (ret = __repmgr_schedule_connection_attempt(env,
-		    (u_int)eid, FALSE)) != 0)
-			return (ret);
+	site = SITE_FROM_EID(eid);
+	/*
+	 * When closing one of our main connections ("in" or "out"), if we still
+	 * have the other one present, then we still consider ourselves to be
+	 * connected, so there's nothing more to do.  But if we have now become
+	 * "not connected", we have some recovery steps to do.  (Note that we
+	 * don't care at all about subordinate connections, for the purposes of
+	 * recovery steps.)
+	 */
+	if (conn == site->ref.conn.in) {
+		site->ref.conn.in = NULL;
+		if (site->ref.conn.out != NULL) /* We're still connected. */
+			goto out;
+	} else if (conn == site->ref.conn.out) {
+		site->ref.conn.out = NULL;
+		if (site->ref.conn.in != NULL)
+			goto out;
+	} else			/* Subordinate connection. */
+		goto out;
 
+	if ((ret = __repmgr_schedule_connection_attempt(env, eid, FALSE)) != 0)
+		goto out;
+
+	/*
+	 * If the failed connection was the one between us and the
+	 * master, assume that the master may have failed, and call for
+	 * an election.  But only do this for the connection to the main
+	 * master process, not a subordinate one.  And only do it if
+	 * we're our site's main process, not a subordinate one.  And
+	 * skip it if the application has configured us not to do
+	 * elections.
+	 */
+	if (!IS_SUBORDINATE(db_rep) && eid == rep->master_id) {
 		/*
-		 * If the failed connection was the one between us and the
-		 * master, assume that the master may have failed, and call for
-		 * an election.  But only do this for the connection to the main
-		 * master process, not a subordinate one.  And only do it if
-		 * we're our site's main process, not a subordinate one.  And
-		 * only do it if the connection had managed to progress beyond
-		 * the "connecting" state, because otherwise it was just a
-		 * reconnection attempt that may have found the site unreachable
-		 * or the master process not running.  And skip it if the
-		 * application has configured us not to do elections.
+		 * Even if we're not doing elections, defer the event
+		 * notification to later execution in the election
+		 * thread.  We don't want to fire an event in the select
+		 * thread, and certainly not while holding the mutex.
 		 */
-		if (!IS_SUBORDINATE(db_rep) && !subordinate_conn &&
-		    !connecting && eid == rep->master_id) {
-			/*
-			 * Even if we're not doing elections, defer the event
-			 * notification to later execution in the election
-			 * thread.  We don't want to fire an event in the select
-			 * thread, and certainly not while holding the mutex.
-			 */
-			flags = ELECT_F_EVENT_NOTIFY;
-			if (FLD_ISSET(db_rep->region->config, REP_C_ELECTIONS))
-				LF_SET(ELECT_F_IMMED | ELECT_F_FAST);
-			else
-				RPRINT(env, (env, DB_VERB_REPMGR_MISC,
-				    "Master failure, but no elections"));
-
-			if ((ret = __repmgr_init_election(env, flags)) != 0)
-				return (ret);
-		}
-
-		/*
-		 * If we're the master site, and we lose a main connection to a
-		 * client (whether we're the main replication process or a
-		 * subordinate process), then the client is going to have
-		 * trouble receiving live log records from us.  So, set the
-		 * temporary log archive block timer, to give the client a
-		 * fighting chance to restart/recover/reconnect.  (We don't care
-		 * about the client's subordinate connections to us -- i.e.,
-		 * connections with a subordinate process at the client site --
-		 * because those sites can only be reading, not applying updates
-		 * from us.)
-		 */
-		if (!subordinate_conn && !connecting &&
-		    rep->master_id == SELF_EID) {
+		flags = ELECT_F_EVENT_NOTIFY;
+		if (FLD_ISSET(db_rep->region->config, REP_C_ELECTIONS))
+			LF_SET(ELECT_F_IMMED | ELECT_F_FAST);
+		else
 			RPRINT(env, (env, DB_VERB_REPMGR_MISC,
-			    "Repmgr: bust connection.  Block archive"));
-			MASTER_UPDATE(env, (REGENV *)env->reginfo->primary);
-		}
-	} else {
-		/*
-		 * The connection was not marked with a valid EID, so we know it
-		 * must have been an incoming connection in the very early
-		 * stages.  Obviously it's correct for us to avoid the
-		 * site-specific recovery steps above.  But even if we have just
-		 * learned which site the connection came from, and are killing
-		 * it because it's redundant, it means we already have a
-		 * perfectly fine connection, and so -- again -- it makes sense
-		 * for us to be skipping scheduling a reconnection, and checking
-		 * for a master crash.
-		 *
-		 * One way or another, make sure the main thread is poked, so
-		 * that we do the deferred clean-up.
-		 */
-		ret = __repmgr_wake_main_thread(env);
+			    "Master failure, but no elections"));
+
+		if ((ret = __repmgr_init_election(env, flags)) != 0)
+			goto out;
 	}
+
+	/*
+	 * If we're the master site, and we lose a main connection to a
+	 * client (whether we're the main replication process or a
+	 * subordinate process), then the client is going to have
+	 * trouble receiving live log records from us.  So, set the
+	 * temporary log archive block timer, to give the client a
+	 * fighting chance to restart/recover/reconnect.  (We don't care
+	 * about the client's subordinate connections to us -- i.e.,
+	 * connections with a subordinate process at the client site --
+	 * because those sites can only be reading, not applying updates
+	 * from us.)
+	 */
+	if (rep->master_id == db_rep->self_eid) {
+		RPRINT(env, (env, DB_VERB_REPMGR_MISC,
+		    "Repmgr: bust connection.  Block archive"));
+		MASTER_UPDATE(env, (REGENV *)env->reginfo->primary);
+	}
+out:
 	return (ret);
 }
 
@@ -835,141 +1332,210 @@ __repmgr_bust_connection(env, conn)
  * __repmgr_bust_connection.)  But sometimes we don't want to do the recovery
  * part; just the disabling part.
  *
- * PUBLIC: void __repmgr_disable_connection __P((ENV *, REPMGR_CONNECTION *));
+ * PUBLIC: int __repmgr_disable_connection __P((ENV *, REPMGR_CONNECTION *));
  */
-void
+int
 __repmgr_disable_connection(env, conn)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 {
 	DB_REP *db_rep;
 	REPMGR_SITE *site;
-	int eid;
+	REPMGR_RESPONSE *resp;
+	u_int32_t i;
+	int eid, ret, t_ret;
 
 	db_rep = env->rep_handle;
-	eid = conn->eid;
-
-	if (IS_VALID_EID(eid)) {
-		site = SITE_FROM_EID(eid);
-		if (conn != site->ref.conn)
-			/* It's a subordinate connection. */
-			TAILQ_REMOVE(&site->sub_conns, conn, entries);
-		TAILQ_INSERT_TAIL(&db_rep->connections, conn, entries);
-	}
+	ret = 0;
 
 	conn->state = CONN_DEFUNCT;
-	conn->eid = -1;
-}
-
-/*
- * PUBLIC: int __repmgr_cleanup_connection __P((ENV *, REPMGR_CONNECTION *));
- *
- * !!!
- * Idempotent.  This can be called repeatedly as blocking message threads (of
- * which there could be multiples) wake up in case of error on the connection.
- */
-int
-__repmgr_cleanup_connection(env, conn)
-	ENV *env;
-	REPMGR_CONNECTION *conn;
-{
-	DB_REP *db_rep;
-	int ret;
-
-	db_rep = env->rep_handle;
-
-	if ((ret = __repmgr_close_connection(env, conn)) != 0)
-		goto out;
-
-	/*
-	 * If there's a blocked message thread waiting, we mustn't yank the
-	 * connection struct out from under it.  Instead, just wake it up.
-	 * We'll get another chance to come back through here soon.
-	 */
-	if (conn->blockers > 0) {
-		ret = __repmgr_signal(&conn->drained);
-		goto out;
+	if (conn->type == REP_CONNECTION) {
+		eid = conn->eid;
+		if (IS_VALID_EID(eid)) {
+			site = SITE_FROM_EID(eid);
+			if (conn != site->ref.conn.in &&
+			    conn != site->ref.conn.out)
+				/* It's a subordinate connection. */
+				TAILQ_REMOVE(&site->sub_conns, conn, entries);
+			TAILQ_INSERT_TAIL(&db_rep->connections, conn, entries);
+			conn->ref_count++;
+		}
+		conn->eid = -1;
+	} else if (conn->type == APP_CONNECTION) {
+		for (i = 0; i < conn->aresp; i++) {
+			resp = &conn->responses[i];
+			if (F_ISSET(resp, RESP_IN_USE) &&
+			    F_ISSET(resp, RESP_THREAD_WAITING)) {
+				F_SET(resp, RESP_COMPLETE);
+				resp->ret = DB_REP_UNAVAIL;
+			}
+		}
+		ret = __repmgr_wake_waiters(env, &conn->response_waiters);
 	}
+	if ((t_ret = __repmgr_signal(&conn->drained)) != 0 && ret == 0)
+		ret = t_ret;
+	if ((t_ret = __repmgr_wake_main_thread(env)) != 0 && ret == 0)
+		ret = t_ret;
 
-	DB_ASSERT(env, !IS_VALID_EID(conn->eid) && conn->state == CONN_DEFUNCT);
-	TAILQ_REMOVE(&db_rep->connections, conn, entries);
-	ret = __repmgr_destroy_connection(env, conn);
-
-out:
 	return (ret);
 }
 
-static void
-remove_connection(env, conn)
+/*
+ * PUBLIC: int __repmgr_cleanup_defunct __P((ENV *, REPMGR_CONNECTION *));
+ *
+ * Caller should hold mutex, since we remove connection from main list.
+ */
+int
+__repmgr_cleanup_defunct(env, conn)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 {
 	DB_REP *db_rep;
-	REPMGR_SITE *site;
+	int ret, t_ret;
 
 	db_rep = env->rep_handle;
-	if (IS_VALID_EID(conn->eid)) {
-		site = SITE_FROM_EID(conn->eid);
 
-		if (site->state == SITE_CONNECTED && conn == site->ref.conn) {
-			/* Not on any list, so no need to do anything. */
-		} else
-			TAILQ_REMOVE(&site->sub_conns, conn, entries);
-	} else
-		TAILQ_REMOVE(&db_rep->connections, conn, entries);
+	ret = __repmgr_close_connection(env, conn);
+
+	TAILQ_REMOVE(&db_rep->connections, conn, entries);
+	if ((t_ret = __repmgr_decr_conn_ref(env, conn)) != 0 && ret == 0)
+		ret = t_ret;
+	return (ret);
 }
 
-static int
+/*
+ * PUBLIC: int __repmgr_close_connection __P((ENV *, REPMGR_CONNECTION *));
+ */
+int
 __repmgr_close_connection(env, conn)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 {
 	int ret;
-
-	DB_ASSERT(env,
-	    conn->state == CONN_DEFUNCT || env->rep_handle->finished);
+#ifdef DB_WIN32
+	int t_ret;
+#endif
 
 	ret = 0;
-	if (conn->fd != INVALID_SOCKET) {
-		ret = closesocket(conn->fd);
-		conn->fd = INVALID_SOCKET;
-		if (ret == SOCKET_ERROR) {
-			ret = net_errno;
-			__db_err(env, ret, "closing socket");
-		}
-#ifdef DB_WIN32
-		if (!WSACloseEvent(conn->event_object) && ret == 0)
-			ret = net_errno;
-#endif
+	if (conn->fd != INVALID_SOCKET &&
+	    closesocket(conn->fd) == SOCKET_ERROR) {
+		ret = net_errno;
+		__db_err(env, ret, DB_STR("3582", "closing socket"));
 	}
+	conn->fd = INVALID_SOCKET;
+#ifdef DB_WIN32
+	if (conn->event_object != WSA_INVALID_EVENT &&
+	    !WSACloseEvent(conn->event_object)) {
+		t_ret = net_errno;
+		__db_err(env, t_ret, DB_STR("3583",
+		    "releasing WSA event object"));
+		if (ret == 0)
+			ret = t_ret;
+	}
+	conn->event_object = WSA_INVALID_EVENT;
+#endif
 	return (ret);
 }
 
-static int
-__repmgr_destroy_connection(env, conn)
+/*
+ * Decrements a connection's ref count; destroys the connection when the ref
+ * count reaches zero.
+ *
+ * PUBLIC: int __repmgr_decr_conn_ref __P((ENV *, REPMGR_CONNECTION *));
+ */
+int
+__repmgr_decr_conn_ref(env, conn)
+	ENV *env;
+	REPMGR_CONNECTION *conn;
+{
+	DB_ASSERT(env, conn->ref_count > 0);
+	return (--conn->ref_count > 0 ? 0 :
+	    __repmgr_destroy_conn(env, conn));
+}
+
+/*
+ * Destroys a conn struct, by freeing all memory and associated resources.
+ * (This is a destructor, so it always must run to completion, and of course the
+ * passed-in object no longer exists upon return.)
+ *
+ * PUBLIC: int __repmgr_destroy_conn __P((ENV *, REPMGR_CONNECTION *));
+ *
+ * Caller is responsible for holding mutex if necessary; we make no assumption
+ * here, since we operate only on the given connection, in isolation.  (However,
+ * note that if this conn has messages on its outbound queue, those are shared
+ * objects, and we decrement the ref count.  So in that case the mutex will need
+ * to be held.)
+ */
+int
+__repmgr_destroy_conn(env, conn)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 {
 	QUEUED_OUTPUT *out;
 	REPMGR_FLAT *msg;
+	REPMGR_RESPONSE *resp;
 	DBT *dbt;
-	int ret;
+	int ret, t_ret;
 
+	ret = 0;
+
+	DB_ASSERT(env, conn->ref_count == 0);
 	/*
 	 * Deallocate any input and output buffers we may have.
 	 */
 	if (conn->reading_phase == DATA_PHASE) {
-		if (conn->msg_type == REPMGR_REP_MESSAGE)
+		switch (conn->msg_type) {
+		case REPMGR_OWN_MSG:
+			if (conn->input.rep_message == NULL)
+				break;
+			/* FALLTHROUGH */
+		case REPMGR_APP_MESSAGE:
+		case REPMGR_HEARTBEAT:
+		case REPMGR_REP_MESSAGE:
 			__os_free(env, conn->input.rep_message);
-		else {
+			break;
+
+		case REPMGR_APP_RESPONSE:
+			/*
+			 * DATA_PHASE of an APP_RESPONSE is another way of
+			 * saying there must be a cur_resp, and it must be
+			 * READING.
+			 */
+			DB_ASSERT(env, conn->cur_resp < conn->aresp &&
+			    conn->responses != NULL);
+			resp = &conn->responses[conn->cur_resp];
+			DB_ASSERT(env, F_ISSET(resp, RESP_READING));
+			if (F_ISSET(resp, RESP_DUMMY_BUF))
+				__os_free(env, resp->dbt.data);
+			break;
+
+		case REPMGR_PERMLSN:
+		case REPMGR_HANDSHAKE:
 			dbt = &conn->input.repmgr_msg.cntrl;
 			if (dbt->size > 0)
 				__os_free(env, dbt->data);
 			dbt = &conn->input.repmgr_msg.rec;
 			if (dbt->size > 0)
 				__os_free(env, dbt->data);
+			break;
+
+		case REPMGR_RESP_ERROR:
+			/*
+			 * This type doesn't use a DATA_PHASE, so this should be
+			 * impossible.
+			 */
+		default:
+			ret = __db_unknown_path(env, "destroy_conn");
 		}
 	}
+
+	if (conn->type == APP_CONNECTION && conn->responses != NULL)
+		__os_free(env, conn->responses);
+
+	if ((t_ret = __repmgr_destroy_waiters(env,
+		    &conn->response_waiters)) != 0 && ret == 0)
+		ret = t_ret;
+
 	while (!STAILQ_EMPTY(&conn->outbound_queue)) {
 		out = STAILQ_FIRST(&conn->outbound_queue);
 		STAILQ_REMOVE_HEAD(&conn->outbound_queue, entries);
@@ -978,8 +1544,10 @@ __repmgr_destroy_connection(env, conn)
 			__os_free(env, msg);
 		__os_free(env, out);
 	}
+	if ((t_ret = __repmgr_free_cond(&conn->drained)) != 0 &&
+	    ret == 0)
+		ret = t_ret;
 
-	ret = __repmgr_free_cond(&conn->drained);
 	__os_free(env, conn);
 	return (ret);
 }
@@ -1013,37 +1581,33 @@ enqueue_msg(env, conn, msg, offset)
  * like a zero-length DBT.
  */
 static void
-setup_sending_msg(msg, type, control, rec)
+setup_sending_msg(env, msg, hdr_buf, type, control, rec)
+	ENV *env;
 	struct sending_msg *msg;
+	u_int8_t *hdr_buf;
 	u_int type;
 	const DBT *control, *rec;
 {
-	u_int32_t control_size, rec_size;
+	__repmgr_msg_hdr_args msg_hdr;
 
 	/*
-	 * The wire protocol is documented in a comment at the top of this
-	 * module.
+	 * Since we know that the msg hdr is a fixed size, we can add its buffer
+	 * to the iovecs before actually marshaling the content.  But the
+	 * add_buffer and add_dbt calls have to be in the right order.
 	 */
-	__repmgr_iovec_init(&msg->iovecs);
-	msg->type = type;
-	__repmgr_add_buffer(&msg->iovecs, &msg->type, sizeof(msg->type));
+	__repmgr_iovec_init(msg->iovecs);
+	__repmgr_add_buffer(msg->iovecs, hdr_buf, __REPMGR_MSG_HDR_SIZE);
 
-	control_size = control == NULL ? 0 : control->size;
-	msg->control_size_buf = htonl(control_size);
-	__repmgr_add_buffer(&msg->iovecs,
-	    &msg->control_size_buf, sizeof(msg->control_size_buf));
+	msg_hdr.type = type;
 
-	rec_size = rec == NULL ? 0 : rec->size;
-	msg->rec_size_buf = htonl(rec_size);
-	__repmgr_add_buffer(
-	    &msg->iovecs, &msg->rec_size_buf, sizeof(msg->rec_size_buf));
+	if ((REP_MSG_CONTROL_SIZE(msg_hdr) =
+	    (control == NULL ? 0 : control->size)) > 0)
+		__repmgr_add_dbt(msg->iovecs, control);
 
-	if (control->size > 0)
-		__repmgr_add_dbt(&msg->iovecs, control);
+	if ((REP_MSG_REC_SIZE(msg_hdr) = (rec == NULL ? 0 : rec->size)) > 0)
+		__repmgr_add_dbt(msg->iovecs, rec);
 
-	if (rec_size > 0)
-		__repmgr_add_dbt(&msg->iovecs, rec);
-
+	__repmgr_msg_hdr_marshal(env, &msg_hdr, hdr_buf);
 	msg->fmsg = NULL;
 }
 
@@ -1063,7 +1627,7 @@ flatten(env, msg)
 
 	DB_ASSERT(env, msg->fmsg == NULL);
 
-	msg_size = msg->iovecs.total_bytes;
+	msg_size = msg->iovecs->total_bytes;
 	if ((ret = __os_malloc(env, sizeof(*msg->fmsg) + msg_size,
 	    &msg->fmsg)) != 0)
 		return (ret);
@@ -1071,39 +1635,14 @@ flatten(env, msg)
 	msg->fmsg->ref_count = 0;
 	p = &msg->fmsg->data[0];
 
-	for (i = 0; i < msg->iovecs.count; i++) {
-		memcpy(p, msg->iovecs.vectors[i].iov_base,
-		    msg->iovecs.vectors[i].iov_len);
-		p = &p[msg->iovecs.vectors[i].iov_len];
+	for (i = 0; i < msg->iovecs->count; i++) {
+		memcpy(p, msg->iovecs->vectors[i].iov_base,
+		    msg->iovecs->vectors[i].iov_len);
+		p = &p[msg->iovecs->vectors[i].iov_len];
 	}
-	__repmgr_iovec_init(&msg->iovecs);
-	__repmgr_add_buffer(&msg->iovecs, &msg->fmsg->data[0], msg_size);
+	__repmgr_iovec_init(msg->iovecs);
+	__repmgr_add_buffer(msg->iovecs, &msg->fmsg->data[0], msg_size);
 	return (0);
-}
-
-/*
- * PUBLIC: REPMGR_SITE *__repmgr_find_site __P((ENV *, const char *, u_int));
- */
-REPMGR_SITE *
-__repmgr_find_site(env, host, port)
-	ENV *env;
-	const char *host;
-	u_int port;
-{
-	DB_REP *db_rep;
-	REPMGR_SITE *site;
-	u_int i;
-
-	db_rep = env->rep_handle;
-	for (i = 0; i < db_rep->site_cnt; i++) {
-		site = &db_rep->sites[i];
-
-		if (strcmp(site->net_addr.host, host) == 0 &&
-		    site->net_addr.port == port)
-			return (site);
-	}
-
-	return (NULL);
 }
 
 /*
@@ -1116,36 +1655,38 @@ __repmgr_find_available_peer(env)
 {
 	DB_REP *db_rep;
 	REP *rep;
+	REPMGR_CONNECTION *conn;
 	REPMGR_SITE *site;
 	u_int i;
 
 	db_rep = env->rep_handle;
 	rep = db_rep->region;
-	for (i = 0; i < db_rep->site_cnt; i++) {
+	FOR_EACH_REMOTE_SITE_INDEX(i) {
 		site = &db_rep->sites[i];
-		if (F_ISSET(site, SITE_IS_PEER) &&
+		if (FLD_ISSET(site->config, DB_REPMGR_PEER) &&
 		    EID_FROM_SITE(site) != rep->master_id &&
-		    IS_SITE_AVAILABLE(site))
+		    site->state == SITE_CONNECTED &&
+		    (((conn = site->ref.conn.in) != NULL &&
+		    conn->state == CONN_READY) ||
+		    ((conn = site->ref.conn.out) != NULL &&
+		    conn->state == CONN_READY)))
 			return (site);
 	}
 	return (NULL);
 }
 
 /*
- * Initialize the fields of a (given) netaddr structure, with the given values.
- * We copy the host name, but take ownership of the ADDRINFO buffer.
- *
- * All inputs are assumed to have been already validated.
+ * Copy host/port values into the given netaddr struct.  Allocates memory for
+ * the copy of the host name, which becomes the responsibility of the caller.
  *
  * PUBLIC: int __repmgr_pack_netaddr __P((ENV *, const char *,
- * PUBLIC:     u_int, ADDRINFO *, repmgr_netaddr_t *));
+ * PUBLIC:     u_int, repmgr_netaddr_t *));
  */
 int
-__repmgr_pack_netaddr(env, host, port, list, addr)
+__repmgr_pack_netaddr(env, host, port, addr)
 	ENV *env;
 	const char *host;
 	u_int port;
-	ADDRINFO *list;
 	repmgr_netaddr_t *addr;
 {
 	int ret;
@@ -1155,8 +1696,6 @@ __repmgr_pack_netaddr(env, host, port, list, addr)
 	if ((ret = __os_strdup(env, host, &addr->host)) != 0)
 		return (ret);
 	addr->port = (u_int16_t)port;
-	addr->address_list = list;
-	addr->current = NULL;
 	return (0);
 }
 
@@ -1179,11 +1718,6 @@ __repmgr_getaddr(env, host, port, flags, result)
 	 * Ports are really 16-bit unsigned values, but it's too painful to
 	 * push that type through the API.
 	 */
-	if (port > UINT16_MAX) {
-		__db_errx(env, "port %u larger than max port %u",
-		    port, UINT16_MAX);
-		return (EINVAL);
-	}
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -1206,158 +1740,6 @@ __repmgr_getaddr(env, host, port, flags, result)
 }
 
 /*
- * Adds a new site to our array of known sites (unless it already exists),
- * and schedules it for immediate connection attempt.  Whether it exists or not,
- * we set newsitep, either to the already existing site, or to the newly created
- * site.  Unless newsitep is passed in as NULL, which is allowed.
- *
- * PUBLIC: int __repmgr_add_site __P((ENV *,
- * PUBLIC:     const char *, u_int, REPMGR_SITE **, u_int32_t, int));
- *
- * !!!
- * Caller is expected to hold db_rep->mutex on entry.
- */
-int
-__repmgr_add_site(env, host, port, sitep, flags, from_user)
-	ENV *env;
-	const char *host;
-	u_int port;
-	REPMGR_SITE **sitep;
-	u_int32_t flags;
-	int from_user;
-{
-	int peer, state;
-
-	state = SITE_IDLE;
-	peer = LF_ISSET(DB_REPMGR_PEER);
-	return (__repmgr_add_site_int(env,
-	    host, port, sitep, peer, state, from_user));
-}
-
-/*
- * PUBLIC: int __repmgr_add_site_int __P((ENV *,
- * PUBLIC:     const char *, u_int, REPMGR_SITE **, int, int, int));
- */
-int
-__repmgr_add_site_int(env, host, port, sitep, peer, state, from_user)
-	ENV *env;
-	const char *host;
-	u_int port;
-	REPMGR_SITE **sitep;
-	int peer, state, from_user;
-{
-	DB_REP *db_rep;
-	REP *rep;
-	DB_THREAD_INFO *ip;
-	REPMGR_SITE *site;
-	u_int base;
-	int eid, locked, pre_exist, ret, t_ret, touched;
-
-	db_rep = env->rep_handle;
-	rep = db_rep->region;
-	COMPQUIET(site, NULL);
-	COMPQUIET(pre_exist, 0);
-	eid = DB_EID_INVALID;
-	touched = FALSE;
-
-	/* Make sure we're up to date before adding to our local list. */
-	ENV_ENTER(env, ip);
-	MUTEX_LOCK(env, rep->mtx_repmgr);
-	locked = TRUE;
-	base = db_rep->site_cnt;
-	if ((ret = __repmgr_copy_in_added_sites(env)) != 0)
-		goto out;
-
-	/* Once we're this far, we're committed to doing init_new_sites. */
-
-	/* If it's still not found, now it's safe to add it. */
-	if ((site = __repmgr_find_site(env, host, port)) == NULL) {
-		pre_exist = FALSE;
-
-		/*
-		 * Store both locally and in shared region.
-		 */
-		if ((ret = __repmgr_new_site(env,
-		    &site, host, port, state, peer)) != 0)
-			goto init;
-		eid = EID_FROM_SITE(site);
-		DB_ASSERT(env, (u_int)eid == db_rep->site_cnt - 1);
-
-		if ((ret = __repmgr_share_netaddrs(env,
-		    rep, (u_int)eid, db_rep->site_cnt)) != 0) {
-			/*
-			 * Rescind the added local slot.
-			 */
-			db_rep->site_cnt--;
-			__repmgr_cleanup_netaddr(env, &site->net_addr);
-		}
-	} else if (from_user) {
-		/*
-		 * A user-supplied existing site might have peer information
-		 * to share, but an existing site from internal repmgr paths
-		 * will not.
-		 */
-		pre_exist = TRUE;
-		eid = EID_FROM_SITE(site);
-		if (peer && !F_ISSET(site, SITE_IS_PEER)) {
-			F_SET(site, SITE_IS_PEER);
-			touched = TRUE;
-		} else if (!peer && F_ISSET(site, SITE_IS_PEER)) {
-			F_CLR(site, SITE_IS_PEER);
-			touched = TRUE;
-		}
-		if (touched)
-			/*
-			 * Only share peer information, not the site itself.
-			 * Pass the same value for start and limit to avoid
-			 * creating any new sites but still share peer values.
-			 */
-			ret = __repmgr_share_netaddrs(env,
-			    rep, (u_int)eid, (u_int)eid);
-	}
-
-	/*
-	 * Bump sequence count if this is a new site or if we updated any
-	 * peer value.
-	 */
-	if (!pre_exist || touched)
-		db_rep->siteinfo_seq = ++rep->siteinfo_seq;
-
-init:
-	MUTEX_UNLOCK(env, rep->mtx_repmgr);
-	locked = FALSE;
-
-	/*
-	 * Initialize all new sites (including the ones we snarfed via
-	 * copy_in_added_sites), even if it doesn't include a pre_existing one.
-	 * But if the new one is already connected, it doesn't need this
-	 * initialization, so skip over that one (which we accomplish by making
-	 * two calls with sub-ranges).
-	 */
-	if (state != SITE_CONNECTED || eid == DB_EID_INVALID)
-		t_ret = __repmgr_init_new_sites(env, base, db_rep->site_cnt);
-	else
-		if ((t_ret = __repmgr_init_new_sites(env,
-		    base, (u_int)eid)) == 0)
-			t_ret = __repmgr_init_new_sites(env,
-			    (u_int)(eid+1), db_rep->site_cnt);
-	if (t_ret != 0 && ret == 0)
-		ret = t_ret;
-
-out:
-	if (locked)
-		MUTEX_UNLOCK(env, rep->mtx_repmgr);
-	ENV_LEAVE(env, ip);
-	if (ret == 0) {
-		if (sitep != NULL)
-			*sitep = site;
-		if (pre_exist)
-			ret = EEXIST;
-	}
-	return (ret);
-}
-
-/*
  * Initialize a socket for listening.  Sets a file descriptor for the socket,
  * ready for an accept() call in a thread that we're happy to let block.
  *
@@ -1369,6 +1751,7 @@ __repmgr_listen(env)
 {
 	ADDRINFO *ai;
 	DB_REP *db_rep;
+	repmgr_netaddr_t *addrp;
 	char *why;
 	int sockopt, ret;
 	socket_t s;
@@ -1378,13 +1761,10 @@ __repmgr_listen(env)
 	/* Use OOB value as sentinel to show no socket open. */
 	s = INVALID_SOCKET;
 
-	if ((ai = ADDR_LIST_FIRST(&db_rep->my_addr)) == NULL) {
-		if ((ret = __repmgr_getaddr(env, db_rep->my_addr.host,
-		    db_rep->my_addr.port, AI_PASSIVE, &ai)) == 0)
-			ADDR_LIST_INIT(&db_rep->my_addr, ai);
-		else
-			return (ret);
-	}
+	addrp = &SITE_FROM_EID(db_rep->self_eid)->net_addr;
+	if ((ret = __repmgr_getaddr(env,
+	    addrp->host, addrp->port, AI_PASSIVE, &ai)) != 0)
+		return (ret);
 
 	/*
 	 * Given the assert is correct, we execute the loop at least once, which
@@ -1393,11 +1773,11 @@ __repmgr_listen(env)
 	 */
 	COMPQUIET(why, "");
 	DB_ASSERT(env, ai != NULL);
-	for (; ai != NULL; ai = ADDR_LIST_NEXT(&db_rep->my_addr)) {
+	for (; ai != NULL; ai = ai->ai_next) {
 
 		if ((s = socket(ai->ai_family,
 		    ai->ai_socktype, ai->ai_protocol)) == INVALID_SOCKET) {
-			why = "can't create listen socket";
+			why = DB_STR("3584", "can't create listen socket");
 			continue;
 		}
 
@@ -1409,35 +1789,42 @@ __repmgr_listen(env)
 		sockopt = 1;
 		if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (sockopt_t)&sockopt,
 		    sizeof(sockopt)) != 0) {
-			why = "can't set REUSEADDR socket option";
+			why = DB_STR("3585",
+			    "can't set REUSEADDR socket option");
 			break;
 		}
 
 		if (bind(s, ai->ai_addr, (socklen_t)ai->ai_addrlen) != 0) {
-			why = "can't bind socket to listening address";
+			why = DB_STR("3586",
+			    "can't bind socket to listening address");
+			ret = net_errno;
 			(void)closesocket(s);
 			s = INVALID_SOCKET;
 			continue;
 		}
 
 		if (listen(s, 5) != 0) {
-			why = "listen()";
+			why = DB_STR("3587", "listen()");
 			break;
 		}
 
 		if ((ret = __repmgr_set_nonblocking(s)) != 0) {
-			__db_err(env, ret, "can't unblock listen socket");
+			__db_err(env, ret, DB_STR("3588",
+			    "can't unblock listen socket"));
 			goto clean;
 		}
 
 		db_rep->listen_fd = s;
-		return (0);
+		goto out;
 	}
 
-	ret = net_errno;
+	if (ret == 0)
+		ret = net_errno;
 	__db_err(env, ret, "%s", why);
 clean:	if (s != INVALID_SOCKET)
 		(void)closesocket(s);
+out:
+	__os_freeaddrinfo(env, ai);
 	return (ret);
 }
 
@@ -1450,12 +1837,21 @@ __repmgr_net_close(env)
 {
 	DB_REP *db_rep;
 	REP *rep;
+	REPMGR_SITE *site;
+	u_int eid;
 	int ret;
 
 	db_rep = env->rep_handle;
 	rep = db_rep->region;
 
-	ret = __repmgr_each_connection(env, final_cleanup, NULL, FALSE);
+	if ((ret = __repmgr_each_connection(env, final_cleanup, NULL,
+	    FALSE)) == 0) {
+		FOR_EACH_REMOTE_SITE_INDEX(eid) {
+			site = SITE_FROM_EID(eid);
+			site->ref.conn.in = NULL;
+			site->ref.conn.out = NULL;
+		}
+	}
 
 	if (db_rep->listen_fd != INVALID_SOCKET) {
 		if (closesocket(db_rep->listen_fd) == SOCKET_ERROR && ret == 0)
@@ -1466,19 +1862,37 @@ __repmgr_net_close(env)
 	return (ret);
 }
 
+/* Called only from env->close(), so we know we're single threaded. */
 static int
 final_cleanup(env, conn, unused)
 	ENV *env;
 	REPMGR_CONNECTION *conn;
 	void *unused;
 {
+	DB_REP *db_rep;
+	REPMGR_SITE *site;
 	int ret, t_ret;
 
 	COMPQUIET(unused, NULL);
+	db_rep = env->rep_handle;
 
-	remove_connection(env, conn);
 	ret = __repmgr_close_connection(env, conn);
-	if ((t_ret = __repmgr_destroy_connection(env, conn)) != 0 && ret == 0)
+	/* Remove the connection from whatever list it's on, if any. */
+	if (conn->type == REP_CONNECTION && IS_VALID_EID(conn->eid)) {
+		site = SITE_FROM_EID(conn->eid);
+
+		if (site->state == SITE_CONNECTED &&
+		    (conn == site->ref.conn.in || conn == site->ref.conn.out)) {
+			/* Not on any list, so no need to do anything. */
+		} else
+			TAILQ_REMOVE(&site->sub_conns, conn, entries);
+		t_ret = __repmgr_destroy_conn(env, conn);
+
+	} else {
+		TAILQ_REMOVE(&db_rep->connections, conn, entries);
+		t_ret = __repmgr_decr_conn_ref(env, conn);
+	}
+	if (t_ret != 0 && ret == 0)
 		ret = t_ret;
 	return (ret);
 }
@@ -1492,13 +1906,6 @@ __repmgr_net_destroy(env, db_rep)
 	DB_REP *db_rep;
 {
 	REPMGR_RETRY *retry;
-	REPMGR_SITE *site;
-	u_int i;
-
-	__repmgr_cleanup_netaddr(env, &db_rep->my_addr);
-
-	if (db_rep->sites == NULL)
-		return;
 
 	while (!TAILQ_EMPTY(&db_rep->retries)) {
 		retry = TAILQ_FIRST(&db_rep->retries);
@@ -1507,12 +1914,130 @@ __repmgr_net_destroy(env, db_rep)
 	}
 
 	DB_ASSERT(env, TAILQ_EMPTY(&db_rep->connections));
-
-	for (i = 0; i < db_rep->site_cnt; i++) {
-		site = &db_rep->sites[i];
-		DB_ASSERT(env, TAILQ_EMPTY(&site->sub_conns));
-		__repmgr_cleanup_netaddr(env, &site->net_addr);
-	}
-	__os_free(env, db_rep->sites);
-	db_rep->sites = NULL;
 }
+
+#ifdef	CONFIG_TEST
+/*
+ * Substitute a fake target port instead of the port actually configured, for
+ * certain types of testing, if desired.
+ *
+ * When a DB_TEST_FAKE_PORT environment variable is present, it names a TCP/IP
+ * port on which a "port arbiter" service may be running.  If it is indeed
+ * running, we should send it a request to ask it what "fake" port to use in
+ * place of the given "real" port.  (The "real" port is the port normally
+ * configured, and present in the membership database.)  The arbiter is not
+ * always running for all tests, so if it's not present it simply means we
+ * should not substitute a fake port.  Also, even if it is running, in some
+ * tests we don't want to substitute a fake port: in that case, the arbiter's
+ * response could name the same port as the "real" port we sent it.
+ *
+ * !!! This is only used for testing.
+ */
+static u_int
+fake_port(env, port)
+	ENV *env;
+	u_int port;
+{
+#define	MIN_PORT	1
+#define	MAX_PORT	65535
+	ADDRINFO *ai0, *ai;
+	db_iovec_t iovec;
+	char *arbiter, buf[100], *end, *p;
+	socket_t s;
+	long result;
+	size_t count;
+	int ret;
+	u_int arbiter_port;
+
+	if ((arbiter = getenv("DB_TEST_FAKE_PORT")) == NULL)
+		return (port);
+	if (__db_getlong(env->dbenv, "repmgr_net.c:fake_port",
+	    arbiter, MIN_PORT, MAX_PORT, &result) != 0)
+		return (port);
+	arbiter_port = (u_int)result;
+
+	/*
+	 * Send a message of the form "{config,Port}" onto a connection to
+	 * arbiter_port.
+	 */
+	if ((ret = __repmgr_getaddr(env,
+	    "localhost", arbiter_port, 0, &ai0)) != 0) {
+		__db_err(env, ret, "fake_port:getaddr");
+		return (port);
+	}
+	s = INVALID_SOCKET;
+	for (ai = ai0; ai != NULL; ai = ai->ai_next) {
+		if ((s = socket(ai->ai_family,
+		    ai->ai_socktype, ai->ai_protocol)) == SOCKET_ERROR) {
+			ret = net_errno;
+			s = INVALID_SOCKET;
+			__db_err(env, ret, "fake_port:socket");
+			goto err;
+		}
+		/*
+		 * Note that port substitution is used in only a small number of
+		 * tests.  When there is no "port arbiter" running, it's not an
+		 * error; it just means we should use the normal configured port
+		 * as is.
+		 */
+		if (connect(s, ai->ai_addr, (socklen_t)ai->ai_addrlen) != 0) {
+			ret = net_errno;
+			(void)closesocket(s);
+			s = INVALID_SOCKET;
+		}
+	}
+	if (ret != 0)
+		goto err;
+	(void)snprintf(buf, sizeof(buf), "{config,%u}\r\n", port);
+	iovec.iov_base = buf;
+	iovec.iov_len = (u_long)strlen(buf);
+	while ((ret = __repmgr_writev(s, &iovec, 1, &count)) == 0) {
+		iovec.iov_base = (u_int8_t *)iovec.iov_base + count;
+		if ((iovec.iov_len -= (u_long)count) == 0)
+			break;
+	}
+	if (ret != 0) {
+		__db_err(env, ret, "fake_port:writev");
+		goto err;
+	}
+
+	/* The response should be a line telling us what port to use. */
+	iovec.iov_base = buf;
+	iovec.iov_len = sizeof(buf);
+	p = buf;
+	while ((ret = __repmgr_readv(s, &iovec, 1, &count)) == 0) {
+		if (count == 0) {
+			__db_errx(env, "fake_port: premature EOF");
+			goto err;
+		}
+		/* Keep reading until we get a line end. */
+		for (p = iovec.iov_base, end = &p[count]; p < end; p++)
+			if (*p == '\r' || *p == '\n')
+				break;
+		if (p < end) {
+			*p = '\0';
+			break;
+		}
+		iovec.iov_base = (u_int8_t *)iovec.iov_base + count;
+		iovec.iov_len -= (u_long)count;
+		DB_ASSERT(env, iovec.iov_len > 0);
+	}
+	if (ret != 0)
+		goto err;
+
+	if (__db_getlong(env->dbenv, "repmgr_net.c:fake_port",
+	    buf, MIN_PORT, MAX_PORT, &result) == 0)
+		port = (u_int)result;
+
+err:
+	/*
+	 * Note that we always return some port value, even if an error happens.
+	 * Since this is just test code: if an error prevented proper fake port
+	 * substitution, it should result in a test failure.
+	 */
+	if (s != INVALID_SOCKET)
+		(void)closesocket(s);
+	__os_freeaddrinfo(env, ai0);
+	return (port);
+}
+#endif

@@ -1,7 +1,7 @@
 /*
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -43,10 +43,23 @@ b_open(int argc, char *argv[])
 				type = DB_BTREE;
 				break;
 			case 'H': case 'h':
-				if (b_util_have_hash())
-					return (0);
-				ts = "Hash";
-				type = DB_HASH;
+				if (optarg[1] == 'E' || optarg[1] == 'e') {
+#if DB_VERSION_MAJOR > 5 || (DB_VERSION_MAJOR == 5 && DB_VERSION_MINOR >= 2)
+					if (b_util_have_heap())
+						return (0);
+					ts = "Heap";
+					type = DB_HEAP;
+#else
+					fprintf(stderr,
+				"b_curwalk: Heap is not supported! \n");
+					return (EXIT_SUCCESS);
+#endif
+				} else {
+					if (b_util_have_hash())
+						return (0);
+					ts = "Hash";
+					type = DB_HASH;
+				}
 				break;
 			case 'Q': case 'q':
 				if (b_util_have_queue())

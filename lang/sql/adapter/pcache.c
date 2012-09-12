@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 
 #include "sqliteInt.h"
@@ -13,4 +13,3 @@ void sqlite3PCacheSetDefault(void){}
 #ifdef SQLITE_TEST
 void sqlite3PcacheStats(int *a,int *b,int *c,int *d) {}
 #endif
-

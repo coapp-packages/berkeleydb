@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -128,7 +128,8 @@ __log_printf_int(env, txnid, fmt, ap)
 	char __logbuf[2048];	/* !!!: END OF THE STACK DON'T TRUST SPRINTF. */
 
 	if (!DBENV_LOGGING(env)) {
-		__db_errx(env, "Logging not currently permitted");
+		__db_errx(env, DB_STR("2510",
+		    "Logging not currently permitted"));
 		return (EAGAIN);
 	}
 

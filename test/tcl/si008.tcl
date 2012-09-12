@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -187,7 +187,8 @@ proc si008 { methods {nentries 10} {tnum "008"} args } {
 
 		# For queue and recno only, test append, adding back
 		# a quarter of the original number of entries.
-		if { [is_record_based $pmethod] == 1 } {
+		if { [is_record_based $pmethod] == 1 &&
+		     [is_heap $pmethod] == 0 } {
 			set did [open $dict]
 			puts "\tSi$tnum.e:\
 			    Append loop: append $quar entries"

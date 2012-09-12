@@ -9,7 +9,7 @@ msgjava="/*-
  *
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2002, 2010 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2002, 2012 Oracle and/or its affiliates.  All rights reserved.
  */"
 
 s=/tmp/__java.sed
@@ -30,6 +30,8 @@ jclass()
 	/;/!d
 	/^}/d
 	/db_threadid_t/d
+	/u_int32_t status/d
+	/xa_status/d
 	/char[	 ]*/{
 		s/^[	 ]*char[*	 ]*[	 ]*\([^[;]*\).*/\\
 $2    private String \1;\\
@@ -94,6 +96,30 @@ $2        return (\1 != 0);\\
 $2    }/p
 		d
 	}
+	/db_size_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/\\
+$2    private long \1;\\
+$2    public long get_\1() {\\
+$2        return \1;\\
+$2    }/p
+		d
+	}
+	/db_ssize_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/\\
+$2    private long \1;\\
+$2    public long get_\1() {\\
+$2        return \1;\\
+$2    }/p
+		d
+	}
+	/roff_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/\\
+$2    private long \1;\\
+$2    public long get_\1() {\\
+$2        return \1;\\
+$2    }/p
+		d
+	}
 	s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/\\
 $2    private int \1;\\
 $2    public int get_\1() {\\
@@ -132,6 +158,8 @@ jclass_jni()
 	/;/!d
 	/^}/d
 	/db_threadid_t/d
+	/u_int32_t status/d
+	/xa_status/d
 	/char[	 ]*/{
 		s/^[	 ]*char[*	 ]*[	 ]*\([^[;]*\).*/	JAVADB_STAT_STRING(jnienv, jobj, $1_\1_fid, statp, \1);/p
 		d
@@ -160,6 +188,18 @@ jclass_jni()
 		s/^[	 ]*[^	 ]*[	 ]*\([^[;]*\).*/	JAVADB_STAT_GID(jnienv, jobj, $1_\1_fid, statp, \1);/p
 		d
 	}
+	/db_size_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	JAVADB_STAT_LONG(jnienv, jobj, $1_\1_fid, statp, \1);/p
+		d
+	}
+	/db_ssize_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	JAVADB_STAT_LONG(jnienv, jobj, $1_\1_fid, statp, \1);/p
+		d
+	}
+	/roff_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	JAVADB_STAT_LONG(jnienv, jobj, $1_\1_fid, statp, \1);/p
+		d
+	}
 	s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	JAVADB_STAT_INT(jnienv, jobj, $1_\1_fid, statp, \1);/p
 }
 EOF
@@ -179,6 +219,8 @@ jni_fieldid_decls()
 	/;/!d
 	/^}/d
 	/db_threadid_t/d
+	/u_int32_t status/d
+	/xa_status/d
 	/char[	 ]*/{
 		s/^[	 ]*char[*	 ]*[	 ]*\([^[;]*\).*/static jfieldID $1_\1_fid;/p
 		d
@@ -207,6 +249,18 @@ jni_fieldid_decls()
 		s/^[	 ]*[^	 ]*[	 ]*\([^[;]*\).*/static jfieldID $1_\1_fid;/p
 		d
 	}
+	/db_size_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/static jfieldID $1_\1_fid;/p
+		d
+	}
+	/db_ssize_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/static jfieldID $1_\1_fid;/p
+		d
+	}
+	/roff_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/static jfieldID $1_\1_fid;/p
+		d
+	}
 	s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/static jfieldID $1_\1_fid;/p
 }
 EOF
@@ -222,6 +276,8 @@ jni_fieldids()
 	/;/!d
 	/^}/d
 	/db_threadid_t/d
+	/u_int32_t status/d
+	/xa_status/d
 	/char[	 ]*/{
 		s/^[	 ]*char[*	 ]*[	 ]*\([^[;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"Ljava\/lang\/String;\" },/p
 		d
@@ -250,6 +306,18 @@ jni_fieldids()
 		s/^[	 ]*[^	 ]*[	 ]*\([^[;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"[B\" },/p
 		d
 	}
+	/db_size_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"J\" },/p
+		d
+	}
+	/db_ssize_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"J\" },/p
+		d
+	}
+	/roff_t/{
+		s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"J\" },/p
+		d
+	}
 	s/^[	 ]*[^	 ]*[	 ]*\([^;]*\).*/	{ \&$1_\1_fid, \&$1_class, \"\1\", \"I\" },/p
 }
 EOF
@@ -266,6 +334,8 @@ jclass_toString()
 	/;/!d
 	/^}/d
 	/db_threadid_t/d
+	/u_int32_t status/d
+	/xa_status/d
 	/char[	 ]*/{
 		s/^[	 ]*char[*	 ]*[	 ]*\([^[;]*\).*/$3            + "\\\\n$3  \1=" + \1/p
 		d
@@ -358,6 +428,7 @@ cmp $t $f > /dev/null 2>&1 ||
 jclass_jni compact __dbj_fill_compact
 
 stat_class h_stat HashStats " extends DatabaseStats"
+stat_class heap_stat HeapStats " extends DatabaseStats"
 stat_class lock_stat LockStats
 stat_class log_stat LogStats
 stat_class mpool_fstat CacheFileStats

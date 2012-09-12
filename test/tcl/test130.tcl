@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -17,6 +17,12 @@ proc test130 { method {nentries 10000} {num_db 3} {tnum "130"} args } {
 
 	# Compaction is an option for btree, recno, and hash databases.
 	if { [is_queue $method] == 1 } {
+		puts "Skipping test$tnum for method $method."
+		return
+	}
+
+	# Heap cannot have subdatabases
+	if { [is_heap $method] == 1 } {
 		puts "Skipping test$tnum for method $method."
 		return
 	}

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -44,6 +44,10 @@ namespace BerkeleyDB {
         /// Number of committed transactions 
         /// </summary>
         public ulong Committed { get { return st.st_ncommits; } }
+        /// <summary>
+        /// Initial number of transactions configured. 
+        /// </summary>
+        public uint InitTxns { get { return st.st_inittxns; } }
         /// <summary>
         /// LSN of the last checkpoint 
         /// </summary>

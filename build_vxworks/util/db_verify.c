@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -12,7 +12,7 @@
 
 #ifndef lint
 static const char copyright[] =
-    "Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.\n";
+    "Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.\n";
 #endif
 
 int db_verify_main __P((int, char *[]));
@@ -45,9 +45,9 @@ db_verify_main(argc, argv)
 	DB *dbp, *dbp1;
 	DB_ENV *dbenv;
 	u_int32_t flags, cache;
-	int ch, exitval, nflag, private;
+	int ch, exitval, mflag, nflag, private;
 	int quiet, resize, ret;
-	char *home, *passwd;
+	char *dname, *fname, *home, *passwd;
 
 	if ((progname = __db_rpath(argv[0])) == NULL)
 		progname = argv[0];
@@ -60,19 +60,28 @@ db_verify_main(argc, argv)
 	dbenv = NULL;
 	dbp = NULL;
 	cache = MEGABYTE;
-	exitval = nflag = quiet = 0;
+	exitval = mflag = nflag = quiet = 0;
 	flags = 0;
 	home = passwd = NULL;
 	__db_getopt_reset = 1;
-	while ((ch = getopt(argc, argv, "h:NoP:quV")) != EOF)
+	while ((ch = getopt(argc, argv, "h:mNoP:quV")) != EOF)
 		switch (ch) {
 		case 'h':
 			home = optarg;
+			break;
+		case 'm':
+			mflag = 1;
 			break;
 		case 'N':
 			nflag = 1;
 			break;
 		case 'P':
+			if (passwd != NULL) {
+				fprintf(stderr, DB_STR("5132",
+					"Password may not be specified twice"));
+				free(passwd);
+				return (EXIT_FAILURE);
+			}
 			passwd = strdup(optarg);
 			memset(optarg, 0, strlen(optarg));
 			if (passwd == NULL) {
@@ -102,6 +111,14 @@ db_verify_main(argc, argv)
 
 	if (argc <= 0)
 		return (db_verify_usage());
+
+	if (mflag) {
+		dname = argv[0];
+		fname = NULL;
+	} else {
+		fname = argv[0];
+		dname = NULL;
+	}
 
 	/* Handle possible interruptions. */
 	__db_util_siginit();
@@ -202,7 +219,7 @@ retry:	if ((ret = db_env_create(&dbenv, 0)) != 0) {
 			}
 
 			ret = dbp1->open(dbp1,
-			    NULL, argv[0], NULL, DB_UNKNOWN, DB_RDONLY, 0);
+			    NULL, fname, dname, DB_UNKNOWN, DB_RDONLY, 0);
 
 			/*
 			 * If we get here, we can check the cache/page.
@@ -228,13 +245,14 @@ retry:	if ((ret = db_env_create(&dbenv, 0)) != 0) {
 		}
 
 		/* The verify method is a destructor. */
-		ret = dbp->verify(dbp, argv[0], NULL, NULL, flags);
+		ret = dbp->verify(dbp, fname, dname, NULL, flags);
 		dbp = NULL;
 		if (ret != 0)
 			exitval = 1;
 		if (!quiet)
-			printf("Verification of %s %s.\n",
-				argv[0], ret == 0 ? "succeeded" : "failed");
+			printf(DB_STR_A("5105", "Verification of %s %s.\n",
+			    "%s %s\n"), argv[0], ret == 0 ? 
+			    DB_STR_P("succeeded") : DB_STR_P("failed"));
 	}
 
 	if (0) {
@@ -243,7 +261,7 @@ err:		exitval = 1;
 
 	if (dbp != NULL && (ret = dbp->close(dbp, 0)) != 0) {
 		exitval = 1;
-		dbenv->err(dbenv, ret, "close");
+		dbenv->err(dbenv, ret, DB_STR("5106", "close"));
 	}
 	if (dbenv != NULL && (ret = dbenv->close(dbenv, 0)) != 0) {
 		exitval = 1;
@@ -276,10 +294,10 @@ db_verify_version_check()
 	/* Make sure we're loaded with the right version of the DB library. */
 	(void)db_version(&v_major, &v_minor, &v_patch);
 	if (v_major != DB_VERSION_MAJOR || v_minor != DB_VERSION_MINOR) {
-		fprintf(stderr,
-	"%s: version %d.%d doesn't match library version %d.%d\n",
-		    progname, DB_VERSION_MAJOR, DB_VERSION_MINOR,
-		    v_major, v_minor);
+		fprintf(stderr, DB_STR_A("5107",
+		    "%s: version %d.%d doesn't match library version %d.%d\n",
+		    "%s %d %d %d %d\n"), progname, DB_VERSION_MAJOR,
+		    DB_VERSION_MINOR, v_major, v_minor);
 		return (EXIT_FAILURE);
 	}
 	return (0);

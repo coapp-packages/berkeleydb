@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 
 #include "sqliteInt.h"
@@ -90,6 +90,22 @@ int sqlite3PagerOkToChangeJournalMode(Pager *pPager) {
 }
 
 int sqlite3PagerSetJournalMode(Pager *pPager, int eMode) {
+	return (SQLITE_OK);
+}
+
+/*
+** This function may only be called while a write-transaction is active in
+** rollback. If the connection is in WAL mode, this call is a no-op.
+** Otherwise, if the connection does not already have an EXCLUSIVE lock on
+** the database file, an attempt is made to obtain one.
+**
+** If the EXCLUSIVE lock is already held or the attempt to obtain it is
+** successful, or the connection is in WAL mode, SQLITE_OK is returned.
+** Otherwise, either SQLITE_BUSY or an SQLITE_IOERR_XXX error code is
+** returned.
+*/
+int sqlite3PagerExclusiveLock(Pager *pPager) {
+	/* Berkeley DB is always WAL, so no-op it. */
 	return (SQLITE_OK);
 }
 
@@ -234,4 +250,3 @@ SQLITE_API void sqlite3_get_pager_stats(sqlite3_int64 *totalBytesOut,
   *numPagersOut = 0;
 }
 #endif
-

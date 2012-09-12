@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -112,6 +112,8 @@ _NameToInfo(name)
 {
 	DBTCL_INFO *p;
 
+	if (name == NULL)
+		return (NULL);
 	LIST_FOREACH(p, &__db_infohead, entries)
 		if (strcmp(name, p->i_name) == 0)
 			return (p);
@@ -148,6 +150,10 @@ _DeleteInfo(p)
 		(void)fclose(p->i_err);
 		p->i_err = NULL;
 	}
+	if (p->i_msg != NULL && p->i_msg != stderr && p->i_msg != stdout) {
+		(void)fclose(p->i_msg);
+		p->i_msg = NULL;
+	}	
 	if (p->i_errpfx != NULL)
 		__os_free(NULL, p->i_errpfx);
 	if (p->i_compare != NULL) {
@@ -281,6 +287,40 @@ _SetListRecnoElem(interp, list, elem1, elem2, e2size)
 }
 
 /*
+ * PUBLIC: int _SetListHeapElem __P((Tcl_Interp *, Tcl_Obj *,
+ * PUBLIC:     DB_HEAP_RID, u_char *, u_int32_t));
+ */
+int
+_SetListHeapElem(interp, list, elem1, elem2, e2size)
+	Tcl_Interp *interp;
+	Tcl_Obj *list;
+	DB_HEAP_RID elem1;
+	u_char *elem2;
+	u_int32_t e2size;
+{
+	Tcl_Obj *intobj, *myobjv[2], *thislist;
+	int myobjc, result;
+
+	result = 0;
+	myobjc = 2;
+	myobjv[0] = Tcl_NewListObj(0, NULL);
+	intobj = Tcl_NewWideIntObj((Tcl_WideInt)elem1.pgno);
+	result = Tcl_ListObjAppendElement(interp, myobjv[0], intobj);
+	if (result != TCL_OK)
+		return (TCL_ERROR);
+	intobj = Tcl_NewWideIntObj((Tcl_WideInt)elem1.indx);
+	result = Tcl_ListObjAppendElement(interp, myobjv[0], intobj);
+	if (result != TCL_OK)
+		return (TCL_ERROR);
+	myobjv[1] = Tcl_NewByteArrayObj(elem2, (int)e2size);
+	thislist = Tcl_NewListObj(myobjc, myobjv);
+	if (thislist == NULL)
+		return (TCL_ERROR);
+	return (Tcl_ListObjAppendElement(interp, list, thislist));
+
+}
+
+/*
  * _Set3DBTList --
  *	This is really analogous to both _SetListElem and
  *	_SetListRecnoElem--it's used for three-DBT lists returned by
@@ -334,25 +374,46 @@ _Set3DBTList(interp, list, elem1, is1recno, elem2, is2recno, elem3)
  * _SetMultiList -- build a list for return from multiple get.
  *
  * PUBLIC: int _SetMultiList __P((Tcl_Interp *,
- * PUBLIC:	    Tcl_Obj *, DBT *, DBT*, DBTYPE, u_int32_t));
+ * PUBLIC:	    Tcl_Obj *, DBT *, DBT*, DBTYPE, u_int32_t, DBC*));
  */
 int
-_SetMultiList(interp, list, key, data, type, flag)
+_SetMultiList(interp, list, key, data, type, flag, dbc)
 	Tcl_Interp *interp;
 	Tcl_Obj *list;
 	DBT *key, *data;
 	DBTYPE type;
 	u_int32_t flag;
+	DBC *dbc;
 {
+	DB *hsdbp;
+	DB_TXN *txn;
+	DBT hkey, rkey, rdata;
+	DBTCL_INFO *dbcip;
 	db_recno_t recno;
 	u_int32_t dlen, klen;
-	int result;
+	int result, ret;
 	void *pointer, *dp, *kp;
 
 	recno = 0;
 	dlen = 0;
 	kp = NULL;
+	hsdbp = NULL;
+	txn = NULL;
 
+	if (type == DB_HEAP) {
+		memset(&hkey, 0, sizeof(DBT));
+		memset(&rkey, 0, sizeof(DBT));
+		rkey.data = &recno;
+		rkey.size = rkey.ulen = sizeof(recno);
+		rkey.flags = DB_DBT_USERMEM;
+		memset(&rdata, 0, sizeof(DBT));
+		rdata.flags = DB_DBT_USERMEM | DB_DBT_PARTIAL;
+
+		dbcip = _PtrToInfo(dbc);
+		hsdbp = (dbcip != NULL) ? dbcip->i_parent->hsdbp : NULL;
+		txn = (dbc != NULL) ? dbc->txn : NULL;
+	}
+	
 	DB_MULTIPLE_INIT(pointer, data);
 	result = TCL_OK;
 
@@ -375,7 +436,20 @@ _SetMultiList(interp, list, key, data, type, flag)
 		if (pointer == NULL)
 			break;
 
-		if (type == DB_RECNO || type == DB_QUEUE) {
+		if (type == DB_HEAP || type == DB_RECNO || type == DB_QUEUE) {
+			if (type == DB_HEAP) {
+				if (flag & DB_MULTIPLE_KEY) {
+					hkey.data = kp;
+					hkey.size = klen;
+					ret = hsdbp->pget(hsdbp, txn,
+					    &hkey, &rkey, &rdata, 0);
+					result = _ReturnSetup(interp,
+					    ret, DB_RETOK_DBGET(ret), "db get");
+					if (result == TCL_ERROR)
+						return (result);
+				} else
+					recno = 0;
+			}
 			result =
 			    _SetListRecnoElem(interp, list, recno, dp, dlen);
 			recno++;
@@ -553,11 +627,52 @@ _EventFunc(dbenv, event, info)
 		 */
 		ip->i_event_info->attached_process = *(pid_t *)info;
 		break;
+	case DB_EVENT_REP_CONNECT_BROKEN:
+		/*
+		 * Info is a struct containing the EID whose connection has
+		 * broken, and the system error code indicating the reason.
+		 */
+		ip->i_event_info->conn_broken_info =
+		    *(DB_REPMGR_CONN_ERR *)info;
+		break;
+	case DB_EVENT_REP_CONNECT_ESTD:
+		/*
+		 * Info is the EID whose connection has been established.
+		 */
+		ip->i_event_info->connected_eid = *(int *)info;
+		break;
+	case DB_EVENT_REP_CONNECT_TRY_FAILED:
+		/*
+		 * Info is a struct containing the EID of the site to which we
+		 * failed to connect, and the system error code indicating the
+		 * reason.
+		 */
+		ip->i_event_info->conn_failed_try_info =
+		    *(DB_REPMGR_CONN_ERR *)info;
+		break;
 	case DB_EVENT_REP_NEWMASTER:
 		/*
 		 * Info is the EID of the new master.
 		 */
 		ip->i_event_info->newmaster_eid = *(int *)info;
+		break;
+	case DB_EVENT_REP_SITE_ADDED:
+		/*
+		 * Info is the EID of the added site.
+		 */
+		ip->i_event_info->added_eid = *(int *)info;
+		break;
+	case DB_EVENT_REP_SITE_REMOVED:
+		/*
+		 * Info is the EID of the removed site.
+		 */
+		ip->i_event_info->removed_eid = *(int *)info;
+		break;
+	case DB_EVENT_REP_WOULD_ROLLBACK:
+		/*
+		 * Info is the sync-point LSN.
+		 */
+		ip->i_event_info->sync_point = *(DB_LSN *)info;
 		break;
 	default:
 		/* Remaining events don't use "info": so nothing to do. */
@@ -599,6 +714,40 @@ _GetLsn(interp, obj, lsn)
 	lsn->file = tmp;
 	result = _GetUInt32(interp, myobjv[1], &tmp);
 	lsn->offset = tmp;
+	return (result);
+}
+
+#define	INVALID_RIDMSG "Invalid RID with %d parts. Should have 2.\n"
+
+/*
+ * PUBLIC: int _GetRid __P((Tcl_Interp *, Tcl_Obj *, DB_HEAP_RID *));
+ */
+int
+_GetRid(interp, obj, rid)
+	Tcl_Interp *interp;
+	Tcl_Obj *obj;
+	DB_HEAP_RID *rid;
+{
+	Tcl_Obj **myobjv;
+	char msg[MSG_SIZE];
+	int myobjc, result;
+	u_int32_t tmp;
+
+	result = Tcl_ListObjGetElements(interp, obj, &myobjc, &myobjv);
+	if (result == TCL_ERROR)
+		return (result);
+	if (myobjc != 2) {
+		result = TCL_ERROR;
+		snprintf(msg, MSG_SIZE, INVALID_RIDMSG, myobjc);
+		Tcl_SetResult(interp, msg, TCL_VOLATILE);
+		return (result);
+	}
+	result = _GetUInt32(interp, myobjv[0], &tmp);
+	if (result == TCL_ERROR)
+		return (result);
+	rid->pgno = tmp;
+	result = _GetUInt32(interp, myobjv[1], &tmp);
+	rid->indx = (u_int16_t)tmp;
 	return (result);
 }
 

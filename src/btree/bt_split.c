@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994, 1995, 1996
@@ -77,7 +77,7 @@ __bam_split(dbc, arg, root_pgnop)
 
 	/*
 	 * First get a lock on the metadata page, we will have to allocate
-	 * pages and cannot get a lock while we have the search tree pinnned.
+	 * pages and cannot get a lock while we have the search tree pinned.
 	 */
 
 	pgno = PGNO_BASE_MD;
@@ -225,8 +225,8 @@ __bam_root(dbc, cp)
 
 	/* Yeah, right. */
 	if (cp->page->level >= MAXBTREELEVEL) {
-		__db_errx(dbp->env,
-		    "Too many btree levels: %d", cp->page->level);
+		__db_errx(dbp->env, DB_STR_A("1021",
+		    "Too many btree levels: %d", "%d"), cp->page->level);
 		return (ENOSPC);
 	}
 
@@ -564,7 +564,7 @@ err:	if (lp != NULL)
 		(void)__memp_fput(mpf,
 		     dbc->thread_info, pp->page, dbc->priority);
 
-	if (ret == DB_NEEDSPLIT)
+	if (ret == DB_NEEDSPLIT && atomic_read(&mpf->mfp->multiversion) == 0)
 		(void)__LPUT(dbc, pp->lock);
 	else
 		(void)__TLPUT(dbc, pp->lock);

@@ -7,19 +7,22 @@
     <link rel="stylesheet" href="gettingStarted.css" type="text/css" />
     <meta name="generator" content="DocBook XSL Stylesheets V1.73.2" />
     <link rel="start" href="index.html" title="Berkeley DB Installation and Build Guide" />
-    <link rel="up" href="build_win.html" title="Chapter 4.  Building Berkeley DB for Windows" />
+    <link rel="up" href="build_win.html" title="Chapter 5.  Building Berkeley DB for Windows" />
     <link rel="prev" href="build_win_java.html" title="Building the Java API" />
     <link rel="next" href="build_win_sql.html" title="Building the SQL API" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">Building the C# API</th>
         </tr>
         <tr>
           <td width="20%" align="left"><a accesskey="p" href="build_win_java.html">Prev</a> </td>
-          <th width="60%" align="center">Chapter 4. 
+          <th width="60%" align="center">Chapter 5. 
 		Building Berkeley DB for Windows
         </th>
           <td width="20%" align="right"> <a accesskey="n" href="build_win_sql.html">Next</a></td>
@@ -36,12 +39,19 @@
         </div>
       </div>
       <p>
-    The C# support is built by a separate Visual Studio solution and requires version
-    2.0 (or higher) of the .NET platform. In Visual Studio 2005/Visual Studio 2008, 
-    the solution is <code class="filename">build_windows\BDB_dotnet.sln</code>; 
-    in Visual Studio 2010, the solution is <code class="filename">build_windows\BDB_dotnet_vs2010.sln</code>.
-
-</p>
+        The C# support is built by a separate Visual Studio solution and
+        requires version 2.0 (or higher) of the .NET platform. If the Berkeley
+        DB utilities are required, build Berkeley DB first following the
+        instructions under <a class="xref" href="build_win.html#win_build32" title="Building Berkeley DB for 32 bit Windows">Building Berkeley DB for 32 bit Windows</a> 
+        or <a class="xref" href="win_build64.html" title="Building Berkeley DB for 64-bit Windows">Building Berkeley DB for 64-bit Windows</a>.
+    </p>
+      <p>
+        To build the C# API in Visual Studio
+        2005/Visual Studio 2008, the solution is
+        <code class="filename">build_windows\BDB_dotnet.sln</code>; in Visual Studio
+        2010, the solution is
+        <code class="filename">build_windows\BDB_dotnet_vs2010.sln</code>.
+    </p>
       <p>
         By default, the solution will build the native libraries, the
         managed assembly and all example programs.  The NUnit tests need to

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994, 1995, 1996
@@ -210,8 +210,8 @@ __bam_iitem(dbc, key, data, op, flags)
 		    dbp->dup_compare, &cmp)) != 0)
 			return (ret);
 		if (cmp != 0) {
-			__db_errx(env,
-		"Existing data sorts differently from put data");
+			__db_errx(env, DB_STR("1004",
+			    "Existing data sorts differently from put data"));
 			return (EINVAL);
 		}
 	}
@@ -457,8 +457,8 @@ __bam_iitem(dbc, key, data, op, flags)
 	if (ret != 0) {
 		if (del == 1 && (t_ret =
 		     __bam_ca_di(dbc, PGNO(h), indx + 1, -1)) != 0) {
-			__db_err(env, t_ret,
-			    "cursor adjustment after delete failed");
+			__db_err(env, t_ret, DB_STR("1005",
+			    "cursor adjustment after delete failed"));
 			return (__env_panic(env, t_ret));
 		}
 		return (ret);

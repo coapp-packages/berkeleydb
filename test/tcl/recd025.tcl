@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -33,6 +33,12 @@ proc recd025 { method args } {
 	set pgindex [lsearch -exact $args "-pagesize"]
 	if { $pgindex != -1 } {
 		puts "Recd025: Skipping for specific pagesizes"
+		return
+	}
+
+	# Skip test for heap, as heap does not have BULK ops
+	if { [is_heap $method] == 1 } {
+		puts "Recd025 skipping for heap method."
 		return
 	}
 

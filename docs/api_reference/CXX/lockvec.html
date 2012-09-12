@@ -12,7 +12,10 @@
     <link rel="next" href="lsn.html" title="Chapter 8.  The DbLsn Handle" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DbEnv::lock_vec()</th>
@@ -70,7 +73,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3516186"></a>Parameters</h3>
+              <h3 class="title"><a id="idp2812000"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -78,7 +81,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516372"></a>locker</h4>
+                <h4 class="title"><a id="idp2800568"></a>locker</h4>
               </div>
             </div>
           </div>
@@ -92,7 +95,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516039"></a>flags</h4>
+                <h4 class="title"><a id="idp2799848"></a>flags</h4>
               </div>
             </div>
           </div>
@@ -121,7 +124,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516439"></a>list</h4>
+                <h4 class="title"><a id="idp2827336"></a>list</h4>
               </div>
             </div>
           </div>
@@ -327,7 +330,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3517032"></a>nlist</h4>
+                <h4 class="title"><a id="idp2862960"></a>nlist</h4>
               </div>
             </div>
           </div>
@@ -340,7 +343,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3517050"></a>elistp</h4>
+                <h4 class="title"><a id="idp2864040"></a>elistp</h4>
               </div>
             </div>
           </div>
@@ -355,7 +358,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3516065"></a>Errors</h3>
+              <h3 class="title"><a id="idp2865120"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -373,7 +376,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516534"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
+                <h4 class="title"><a id="idp2832944"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
               </div>
             </div>
           </div>
@@ -391,13 +394,20 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3517041"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
+                <h4 class="title"><a id="idp2830488"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
               </div>
             </div>
           </div>
           <p>
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
+            </p>
+          <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="Db::set_lk_exclusive()">Db::set_lk_exclusive()</a>
+                for more information.
             </p>
           <p>
                 <a class="xref" href="dblocknotgranted.html" title="DbLockNotGrantedException">DbLockNotGrantedException</a> is thrown if
@@ -409,7 +419,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516237"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
+                <h4 class="title"><a id="idp2814960"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
               </div>
             </div>
           </div>
@@ -428,7 +438,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3516472"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp2850720"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -440,7 +450,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3517054"></a>ENOMEM</h4>
+                <h4 class="title"><a id="idp2798880"></a>ENOMEM</h4>
               </div>
             </div>
           </div>
@@ -453,7 +463,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3517098"></a>Class</h3>
+              <h3 class="title"><a id="idp2835920"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -466,7 +476,7 @@ DbEnv::lock_vec(u_int32_t locker, u_int32_t flags,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3517083"></a>See Also</h3>
+              <h3 class="title"><a id="idp2834560"></a>See Also</h3>
             </div>
           </div>
         </div>

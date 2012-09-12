@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994
@@ -114,7 +114,7 @@ __ham_quick_delete(dbc)
 	if ((ret = __hamc_writelock(dbc)) == 0) {
 		ret = __ham_del_pair(dbc, 0, NULL);
 		/*
-		 * If a page was retreived during the delete, put it now. We
+		 * If a page was retrieved during the delete, put it now. We
 		 * can't rely on the callers cursor close to do that, since bulk
 		 * delete operations keep the cursor open across deletes.
 		 */
@@ -558,7 +558,8 @@ next:			ret = __ham_item_next(dbc, lock_type, pgnop);
 				ret = __ham_dup_return(dbc, data, flags);
 			break;
 		} else if (!F_ISSET(hcp, H_NOMORE)) {
-			__db_errx(env, "H_NOMORE returned to __hamc_get");
+			__db_errx(env, DB_STR("1130",
+			    "H_NOMORE returned to __hamc_get"));
 			ret = EINVAL;
 			break;
 		}
@@ -807,7 +808,7 @@ back_up:
 						if ((ret = __ham_release_meta(
 						    dbc)) != 0)
 							return (ret);
-						/* 
+						/*
 						 * Not an error to get
 						 * DB_NOTFOUND, we're just at
 						 * the beginning of the db.
@@ -1816,8 +1817,8 @@ __ham_overwrite(dbc, nval, flags)
 				tmp_val2.size = hcp->dup_len;
 				if (dbp->dup_compare(
 				    dbp, nval, &tmp_val2) != 0) {
-					__db_errx(env,
-			"Existing data sorts differently from put data");
+					__db_errx(env, DB_STR("1131",
+			    "Existing data sorts differently from put data"));
 					return (EINVAL);
 				}
 			}

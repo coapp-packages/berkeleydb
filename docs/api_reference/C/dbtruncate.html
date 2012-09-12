@@ -12,7 +12,10 @@
     <link rel="next" href="dbupgrade.html" title="DB-&gt;upgrade()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DB-&gt;truncate()</th>
@@ -68,7 +71,7 @@ DB-&gt;truncate(DB *db,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3650269"></a>Parameters</h3>
+              <h3 class="title"><a id="idp58706248"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -76,7 +79,7 @@ DB-&gt;truncate(DB *db,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3650272"></a>txnid</h4>
+                <h4 class="title"><a id="idp58706440"></a>txnid</h4>
               </div>
             </div>
           </div>
@@ -96,7 +99,7 @@ DB-&gt;truncate(DB *db,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3650149"></a>countp</h4>
+                <h4 class="title"><a id="idp58621992"></a>countp</h4>
               </div>
             </div>
           </div>
@@ -110,7 +113,7 @@ DB-&gt;truncate(DB *db,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3649804"></a>flags</h4>
+                <h4 class="title"><a id="idp58691496"></a>flags</h4>
               </div>
             </div>
           </div>
@@ -124,7 +127,7 @@ DB-&gt;truncate(DB *db,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3650328"></a>Errors</h3>
+              <h3 class="title"><a id="idp58687128"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -140,7 +143,7 @@ DB-&gt;truncate(DB *db,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3650399"></a>DB_LOCK_DEADLOCK</h4>
+                <h4 class="title"><a id="idp58713984"></a>DB_LOCK_DEADLOCK</h4>
               </div>
             </div>
           </div>
@@ -153,7 +156,7 @@ DB-&gt;truncate(DB *db,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3650526"></a>DB_LOCK_NOTGRANTED</h4>
+                <h4 class="title"><a id="idp58721672"></a>DB_LOCK_NOTGRANTED</h4>
               </div>
             </div>
           </div>
@@ -161,12 +164,19 @@ DB-&gt;truncate(DB *db,
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
             </p>
+          <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="DB-&gt;set_lk_exclusive()">DB-&gt;set_lk_exclusive()</a>
+                for more information.
+            </p>
         </div>
         <div class="sect3" lang="en" xml:lang="en">
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3650534"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp58715320"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -179,7 +189,7 @@ DB-&gt;truncate(DB *db,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3650363"></a>Class</h3>
+              <h3 class="title"><a id="idp58711784"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -191,7 +201,7 @@ DB-&gt;truncate(DB *db,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3650421"></a>See Also</h3>
+              <h3 class="title"><a id="idp58716176"></a>See Also</h3>
             </div>
           </div>
         </div>

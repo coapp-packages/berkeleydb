@@ -12,7 +12,10 @@
     <link rel="next" href="envopen.html" title="Opening a Transactional Environment and Database" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">Chapter 2. Enabling Transactions</th>
@@ -269,6 +272,7 @@
             created.  Please see  
             <a href="../../programmer_reference/transapp_journal.html" class="olink">Using
                 Recovery on Journaling Filesystems</a>
+            
             in the <em class="citetitle">Berkeley DB Programmer's Reference Guide</em> for more information.
         </p>
         </div>
@@ -457,15 +461,13 @@
                                 You can cause database files to be created
                                 in a directory other than the
                                 environment home by using the
-                                    <code class="methodname">DB_ENV-&gt;set_data_dir()</code>
+                                    <code class="methodname">DB_ENV-&gt;add_data_dir()</code>
                                     
                                     
-                                method. 
-                                The directory identified
-                                here must exist. If a relative path is
-                                provided, then the directory location is
-                                resolved relative to the environment's home
-                                directory.
+                                method.  The directory identified here must
+                                exist. If a relative path is provided, then
+                                the directory location is resolved relative
+                                to the environment's home directory.
                                 </p>
 
                                 <p>
@@ -482,9 +484,9 @@
                                 <p>
                                 You can also set a default data location that is used by
                                 the entire environment by using the
-                                <code class="literal">set_data_dir</code> parameter
+                                <code class="literal">add_data_dir</code> parameter
                                 in the environment's <code class="literal">DB_CONFIG</code> file.
-                                Note that the <code class="literal">set_data_dir</code>
+                                Note that the <code class="literal">add_data_dir</code>
                                 parameter overrides any value set by the
                                     <code class="methodname">DB_ENV-&gt;set_data_dir()</code>
                                     
@@ -536,6 +538,70 @@
                             </td>
                   </tr>
                   <tr>
+                    <td>Temporary files</td>
+                    <td>
+                            <p>
+                            You can cause temporary files required by the
+                            environment to be created
+                            in a directory other than the environment home
+                            directory by using the
+                                    <code class="methodname">DB_ENV-&gt;set_tmp_dir()</code>
+                                    
+                                    
+                                method.  The directory identified
+                                here must exist. If a relative path is
+                                provided, then the directory location is
+                                resolved relative to the environment's home
+                                directory.
+                             </p>
+
+                             <p>
+                                You can also set a temporary file location 
+                                by using the
+                                <code class="literal">set_tmp_dir</code> parameter
+                                in the environment's <code class="literal">DB_CONFIG</code> file.
+                                Note that the <code class="literal">set_tmp_dir</code>
+                                parameter overrides any value set by the
+                                    <code class="methodname">DB_ENV-&gt;set_tmp_dir()</code>
+                                    
+                                    
+                                method.
+                                </p>
+                            </td>
+                  </tr>
+                  <tr>
+                    <td>Metadata files</td>
+                    <td>
+                            <p>
+                            You can cause persistent metadata files required by the
+                            replicated applications to be created
+                            in a directory other than the environment home
+                            directory by using the
+                                    <code class="methodname">DB_ENV-&gt;set_metadata_dir()</code>
+                                    
+                                    
+                                method.  The directory identified
+                                here must exist. If a relative path is
+                                provided, then the directory location is
+                                resolved relative to the environment's home
+                                directory.
+                             </p>
+
+                             <p>
+                                You can also set a metadata directory location 
+                                by using the
+                                <code class="literal">set_metadata_dir</code> parameter
+                                in the environment's <code class="literal">DB_CONFIG</code> file.
+                                Note that the <code class="literal">set_metadata_dir</code>
+                                parameter overrides any value set by the
+                                    <code class="methodname">DB_ENV-&gt;set_metadata_dir()</code>
+                                    
+                                    
+                                method.
+                                </p>
+                            </td>
+                  </tr>
+                  <tr>
                     <td>Region files</td>
                     <td>
                                 If backed by the filesystem, region
@@ -552,7 +618,7 @@
             parameter to a line. Each parameter is followed by a space,
             which is followed by the parameter value. For example:
         </p>
-            <pre class="programlisting">    set_data_dir /export1/db/env_data_files </pre>
+            <pre class="programlisting">    add_data_dir /export1/db/env_data_files </pre>
           </div>
         </div>
         <div class="sect2" lang="en" xml:lang="en">
@@ -711,10 +777,10 @@
               </div>
             </div>
             <p>
-            If heap memory is used to back your shared memory regions, 
-            the environment may only be
-            accessed by a single process, although that process may be
-            multi-threaded. In this case, the regions are managed only in
+            If heap memory is used to back your shared memory regions, then
+            you can only open a single handle for the environment.  This
+            means that the environment cannot be accessed by multiple
+            processes.  In this case, the regions are managed only in
             memory, and they are not written to the filesystem. You
             indicate that heap memory is to be used for the region files by
             specifying

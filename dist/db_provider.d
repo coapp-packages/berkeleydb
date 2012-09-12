@@ -8,21 +8,23 @@ provider bdb {
 /*
  * 
  * dist/events.in - This description of Oracle Berkeley DB's internal
- * events hierarchy is processes by dist/s_perfmon to generate the
- * platform-specific files needed by the configured operating system.
+ * events hierarchy is processed by 'dist/s_include' to generate the
+ * platform-independant file dist/db_provider.d. The 'configure' step on the
+ * target operating system generate platform-specific include file.
  * 
- * The entries starting in the first column are event class names, and consist
- * of a single word. The class's individual function-like events follow.
+ * 	s_include	->	dist/db_provider.d
+ * 	configure	->	<build_directory>/db_provider.h
  * 
- * Some of these are included to enhance consistency; thse calls could be
- * supported by pid$target::<function>:entry (DTrace) or
- * probe process("$LIB").function("<function>").call (SystemTap) probes.
+ * There are two kinds of entries in events.in, describing either an event class
+ * or an individual event. The entries starting in the first column are class
+ * names, consisting of a single word. The class's individual events follow,
+ * described as if they were an ANSI C function signature;
  * 
- * For DTrace
- * 	dist/bdb_provider.d
- * 	util/dtrace/dbdefs.d
- * 	
- * Copyright (c) 2010 Oracle and/or its affiliates.  All rights reserved.
+ * Events are listed grouped by their relation to one another, rather than
+ * alphabetically. For instance allocation and free events are adjacent.
+ * New, unrelated events are placed at the end of their event class.
+ * 
+ * Copyright (c) 2011, 2012 Oracle and/or its affiliates.  All rights reserved.
  * 
  */
 
@@ -138,7 +140,7 @@ provider bdb {
     probe lock__maxnlockers(unsigned new_max_active, unsigned locker_id);
 
 /* Log - Transaction log  */
-    probe log__read(unsigned logfile, unsigned read_count);
+    probe log__read(unsigned read_count, unsigned logfile);
 
 /*
  * The mpool class monitors the allocation and management of memory,
@@ -228,6 +230,19 @@ provider bdb {
     probe mpool__alloc_max_pages(unsigned max, unsigned region_id);
     probe mpool__alloc_pages(unsigned count, unsigned region_id);
 
+    probe mpool__backup_spins(unsigned spins, char *file, unsigned pgno);
+
+    /*
+     * The aggressiveness of a buffer cache allocation increases as more
+     * involved methods are needed in order to free up the requested space
+     * in the cache with the indicated region_id.
+     * aggressive: the agressiveness of an allocation request was increased.
+     * max_aggressive: the agressiveness of an allocation request was increased
+     * to a new maximum.
+     */
+    probe mpool__aggressive(unsigned st_alloc_aggressive, unsigned region_id);
+    probe mpool__max_aggressive(unsigned st_alloc_max_aggr, unsigned region_id);
+
 /*
  * The mutex category monitors includes shared latches.  The alloc_id value
  * is one of the MTX_XXX definitions from dbinc/mutex.h
@@ -308,12 +323,12 @@ provider bdb {
 /* The statistics counters for replication are for internal use. */
     probe rep__log_queued(unsigned count, DB_LSN *lsn);
     probe rep__pg_duplicated(unsigned eid, unsigned pgno, unsigned file, unsigned count);
-    probe rep__pg_record(unsigned eid, unsigned count);
-    probe rep__pg_request(unsigned eid, unsigned count);
-    probe rep__election_won(unsigned generation, unsigned count);
-    probe rep__election(unsigned generation, unsigned count);
-    probe rep__log_request(unsigned eid, unsigned count);
-    probe rep__master_change(unsigned eid, unsigned count);
+    probe rep__pg_record(unsigned count, unsigned eid);
+    probe rep__pg_request(unsigned count, unsigned eid);
+    probe rep__election_won(unsigned count, unsigned generation);
+    probe rep__election(unsigned count, unsigned generation);
+    probe rep__log_request(unsigned count, unsigned eid);
+    probe rep__master_change(unsigned count, unsigned eid);
 
 /* The txn category covers the basic transaction operations. */
     /* A transaction was successfully begun. */
@@ -336,7 +351,7 @@ provider bdb {
     /* Beginning the transaction incremented st_nbegins. */
     probe txn__nbegins(unsigned st_nbegins, unsigned txnid);
     /* Aborting the transaction incremented st_naborts. */
-    probe txn__naborts(unsigned st_nbegins, unsigned txnid);
+    probe txn__naborts(unsigned st_naborts, unsigned txnid);
     /* Committing the transaction incremented st_ncommits. */
     probe txn__ncommits(unsigned st_ncommits, unsigned txnid);
     /*

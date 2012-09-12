@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -18,11 +18,11 @@ namespace CsharpAPITest
 	[TestFixture]
 	public class MPoolConfigTest : CSharpTestFixture
 	{
-
 		[TestFixtureSetUp]
 		public void SetUpTestFixture()
 		{
 			testFixtureName = "MPoolConfigTest";
+			base.SetUpTestfixture();
 		}
 
 		[Test]

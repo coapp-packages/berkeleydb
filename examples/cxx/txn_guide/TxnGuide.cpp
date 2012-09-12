@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$ 
  */
@@ -379,7 +379,8 @@ openDb(Db **dbpp, const char *progname, const char *fileName,
         // Now open the database */
         openFlags = DB_CREATE              | // Allow database creation
                     DB_READ_UNCOMMITTED    | // Allow uncommitted reads
-                    DB_AUTO_COMMIT;          // Allow autocommit
+                    DB_AUTO_COMMIT         | // Allow autocommit
+                    DB_THREAD; // Cause the database to be free-threaded
 
         dbp->open(NULL,       // Txn pointer
                   fileName,   // File name

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -14,7 +14,7 @@
 
 #ifndef lint
 static const char copyright[] =
-    "Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.\n";
+    "Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.\n";
 #endif
 
 int	 db_dump_db_init __P((DB_ENV *, char *, int, u_int32_t, int *));
@@ -83,7 +83,8 @@ db_dump_main(argc, argv)
 			break;
 		case 'f':
 			if (freopen(optarg, "w", stdout) == NULL) {
-				fprintf(stderr, "%s: %s: reopen: %s\n",
+				fprintf(stderr, DB_STR_A("5108",
+				    "%s: %s: reopen: %s\n", "%s %s %s\n"),
 				    progname, optarg, strerror(errno));
 				return (EXIT_FAILURE);
 			}
@@ -111,10 +112,17 @@ db_dump_main(argc, argv)
 			nflag = 1;
 			break;
 		case 'P':
+			if (passwd != NULL) {
+				fprintf(stderr, DB_STR("5130",
+					"Password may not be specified twice"));
+				free(passwd);
+				return (EXIT_FAILURE);
+			}
 			passwd = strdup(optarg);
 			memset(optarg, 0, strlen(optarg));
 			if (passwd == NULL) {
-				fprintf(stderr, "%s: strdup: %s\n",
+				fprintf(stderr, DB_STR_A("5109",
+				    "%s: strdup: %s\n", "%s %s\n"),
 				    progname, strerror(errno));
 				return (EXIT_FAILURE);
 			}
@@ -155,35 +163,35 @@ db_dump_main(argc, argv)
 		return (db_dump_usage());
 
 	if (dopt != NULL && pflag) {
-		fprintf(stderr,
+		fprintf(stderr, DB_STR_A("5110",
 		    "%s: the -d and -p options may not both be specified\n",
-		    progname);
+		    "%s\n"), progname);
 		return (EXIT_FAILURE);
 	}
 	if (lflag && sflag) {
-		fprintf(stderr,
+		fprintf(stderr, DB_STR_A("5111",
 		    "%s: the -l and -s options may not both be specified\n",
-		    progname);
+		    "%s\n"), progname);
 		return (EXIT_FAILURE);
 	}
 	if ((lflag || sflag) && mflag) {
-		fprintf(stderr,
+		fprintf(stderr, DB_STR_A("5112",
 		    "%s: the -m option may not be specified with -l or -s\n",
-		    progname);
+		    "%s\n"), progname);
 		return (EXIT_FAILURE);
 	}
 
 	if (keyflag && rflag) {
-		fprintf(stderr, "%s: %s",
-		    "the -k and -r or -R options may not both be specified\n",
-		    progname);
+		fprintf(stderr, DB_STR_A("5113",
+	    "%s: the -k and -r or -R options may not both be specified\n",
+		    "%s\n"), progname);
 		return (EXIT_FAILURE);
 	}
 
-	if ((mflag || sflag) && rflag) {
-		fprintf(stderr, "%s: %s",
-		    "the -r or R options may not be specified with -m or -s\n",
-		    progname);
+	if (sflag && rflag) {
+		fprintf(stderr, DB_STR_A("5114",
+	    "%s: the -r or R options may not be specified with -s\n",
+		    "%s\n"), progname);
 		return (EXIT_FAILURE);
 	}
 
@@ -246,7 +254,7 @@ retry:	if ((ret = db_env_create(&dbenv, 0)) != 0) {
 	 */
 	if (rflag) {
 		/* The verify method is a destructor. */
-		ret = dbp->verify(dbp, filename, NULL, stdout,
+		ret = dbp->verify(dbp, filename, dbname, stdout,
 		    DB_SALVAGE |
 		    (Rflag ? DB_AGGRESSIVE : 0) |
 		    (pflag ? DB_PRINTABLE : 0));
@@ -258,7 +266,7 @@ retry:	if ((ret = db_env_create(&dbenv, 0)) != 0) {
 
 	if ((ret = dbp->open(dbp, NULL,
 	    filename, dbname, DB_UNKNOWN, DB_RDWRMASTER|DB_RDONLY, 0)) != 0) {
-		dbp->err(dbp, ret, "open: %s",
+		dbp->err(dbp, ret, DB_STR_A("5115", "open: %s", "%s"),
 		    filename == NULL ? dbname : filename);
 		goto err;
 	}
@@ -286,8 +294,8 @@ retry:	if ((ret = db_env_create(&dbenv, 0)) != 0) {
 			if (db_dump_show_subs(dbp))
 				goto err;
 		} else {
-			dbp->errx(dbp,
-			    "%s: does not contain multiple databases",
+			dbp->errx(dbp, DB_STR_A("5116",
+			    "%s: does not contain multiple databases", "%s"),
 			    filename);
 			goto err;
 		}
@@ -306,7 +314,7 @@ err:		exitval = 1;
 	}
 done:	if (dbp != NULL && (ret = dbp->close(dbp, 0)) != 0) {
 		exitval = 1;
-		dbenv->err(dbenv, ret, "close");
+		dbenv->err(dbenv, ret, DB_STR("5117", "close"));
 	}
 	if (dbenv != NULL && (ret = dbenv->close(dbenv, 0)) != 0) {
 		exitval = 1;
@@ -490,7 +498,7 @@ db_dump_show_subs(dbp)
 	while ((ret = dbcp->get(dbcp, &key, &data,
 	    DB_IGNORE_LEASE | DB_NEXT)) == 0) {
 		if ((ret = dbp->dbenv->prdbt(
-		    &key, 1, NULL, stdout, __db_pr_callback, 0)) != 0) {
+		    &key, 1, NULL, stdout, __db_pr_callback, 0, 0)) != 0) {
 			dbp->errx(dbp, NULL);
 			return (1);
 		}
@@ -530,9 +538,10 @@ db_dump_version_check()
 	/* Make sure we're loaded with the right version of the DB library. */
 	(void)db_version(&v_major, &v_minor, &v_patch);
 	if (v_major != DB_VERSION_MAJOR || v_minor != DB_VERSION_MINOR) {
-		fprintf(stderr,
-	"%s: version %d.%d doesn't match library version %d.%d\n",
-		    progname, DB_VERSION_MAJOR, DB_VERSION_MINOR,
+		fprintf(stderr, DB_STR_A("5118",
+		    "%s: version %d.%d doesn't match library version %d.%d\n",
+		    "%s %d %d %d %d\n"), progname,
+		    DB_VERSION_MAJOR, DB_VERSION_MINOR,
 		    v_major, v_minor);
 		return (EXIT_FAILURE);
 	}

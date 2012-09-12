@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994, 1995, 1996
@@ -185,6 +185,7 @@ retry:	if (lock_mode == DB_LOCK_WRITE)
 
 			t_ret = __memp_fput(mpf,
 			    dbc->thread_info, h, dbc->priority);
+			h = NULL;
 
 			if (ret == DB_LOCK_DEADLOCK ||
 			    ret == DB_LOCK_NOTGRANTED)
@@ -222,6 +223,7 @@ retry:	if (lock_mode == DB_LOCK_WRITE)
 			/* Someone else split the root, start over. */
 			ret = __memp_fput(mpf,
 			    dbc->thread_info, h, dbc->priority);
+			h = NULL;
 			if ((t_ret = __LPUT(dbc, lock)) != 0 && ret == 0)
 				ret = t_ret;
 			if (ret != 0)
@@ -230,7 +232,7 @@ retry:	if (lock_mode == DB_LOCK_WRITE)
 		} else if (atomic_read(&mpf->mfp->multiversion) != 0 &&
 		    lock_mode == DB_LOCK_WRITE && (ret = __memp_dirty(mpf, &h,
 		    dbc->thread_info, dbc->txn, dbc->priority, 0)) != 0) {
-			(void)__memp_fput(mpf, 
+			(void)__memp_fput(mpf,
 			    dbc->thread_info, h, dbc->priority);
 			(void)__LPUT(dbc, lock);
 		}
@@ -313,7 +315,7 @@ retry:	if ((ret = __bam_get_root(dbc, start_pgno, slevel, flags, &stack)) != 0)
 	lock = cp->csp->lock;
 	set_stack = stack;
 	/*
-	 * Determine if we need to lock interiror nodes.
+	 * Determine if we need to lock interior nodes.
 	 * If we have record numbers we always lock.  Otherwise we only
 	 * need to do this if we are write locking and we are returning
 	 * a stack of nodes.  SR_NEXT will eventually get a stack and
@@ -708,7 +710,7 @@ lock_next:		h = NULL;
 				     ret != DB_LOCK_DEADLOCK))
 					goto err;
 
-				/* Relase the parent if we are holding it. */
+				/* Release the parent if we are holding it. */
 				if (parent_h != NULL &&
 				    (ret = __memp_fput(mpf, dbc->thread_info,
 				    parent_h, dbc->priority)) != 0)
@@ -732,7 +734,7 @@ lock_next:		h = NULL;
 				 * free.  If we are at the LEAF level we can
 				 * hold on to the lock if the page is still
 				 * of the right type.  Otherwise we need to
-				 * besure this page cannot move to an off page
+				 * be sure this page cannot move to an off page
 				 * duplicate tree (which are not locked) and
 				 * masquerade as the page we want.
 				 */
@@ -752,10 +754,10 @@ lock_next:		h = NULL;
 				    (F_ISSET(dbp, DB_AM_SUBDB) ||
 				    (dbp->type == DB_BTREE &&
 				    F_ISSET(dbp, DB_AM_DUPSORT))))
-				    	goto drop_lock;
+					goto drop_lock;
 
 				/*
-				 * Take a look at the page.  If it got 
+				 * Take a look at the page.  If it got
 				 * freed it could be very gone.
 				 */
 				if ((ret = __memp_fget(mpf, &pg,
@@ -889,6 +891,7 @@ found:	*exactp = 1;
 		if ((t_ret = __memp_fput(mpf,
 		     dbc->thread_info, h, dbc->priority)) != 0 && ret == 0)
 			ret = t_ret;
+		h = NULL;
 	} else {
 		if (LF_ISSET(SR_DEL) && cp->csp == cp->sp)
 			cp->csp++;

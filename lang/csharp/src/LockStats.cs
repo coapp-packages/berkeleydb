@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -18,6 +18,30 @@ namespace BerkeleyDB {
             st = stats;
         }
 
+        /// <summary>
+        /// Current number of lockers allocated. 
+        /// </summary>
+        public uint AllocatedLockers { get { return st.st_lockers; } }
+        /// <summary>
+        /// Current number of locks allocated. 
+        /// </summary>
+        public uint AllocatedLocks { get { return st.st_locks; } }
+        /// <summary>
+        /// Current number of lock objects allocated.
+        /// </summary>
+        public uint AllocatedObjects { get { return st.st_objects; } }
+        /// <summary>
+        /// Initial number of locks allocated.
+        /// </summary>
+        public uint InitLocks { get { return st.st_initlocks; } }
+        /// <summary>
+        /// Initial number of lockers allocated.
+        /// </summary>
+        public uint InitLockers { get { return st.st_initlockers; } }
+        /// <summary>
+        /// Initial number of lock objects allocated.
+        /// </summary>
+        public uint InitObjects { get { return st.st_initobjects; } }
         /// <summary>
         /// Last allocated locker ID. 
         /// </summary>
@@ -178,6 +202,10 @@ namespace BerkeleyDB {
         /// Region lock granted after wait. 
         /// </summary>
         public ulong RegionWait { get { return st.st_region_wait; } }
+        /// <summary>
+        /// Size of object hash table. 
+        /// </summary>
+        public uint TableSize { get { return st.st_tablesize; } }
         /// <summary>
         /// Transaction timeout. 
         /// </summary>

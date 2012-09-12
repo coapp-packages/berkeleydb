@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -2011,7 +2011,7 @@ __bam_getboth_finddatum(dbc, data, flags)
 		    cp->indx + O_INDX, dbp->dup_compare, &cmp)) != 0)
 			return (ret);
 		if (cmp == 0 || (cmp < 0 && flags == DB_GET_BOTH_RANGE))
-			return 0;
+			return (0);
 		cp->indx = top;
 		return DB_NOTFOUND;
 	}

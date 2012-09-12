@@ -12,7 +12,10 @@
     <link rel="next" href="repset_limit.html" title="DB_ENV-&gt;rep_set_limit()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DB_ENV-&gt;rep_set_config()</th>
@@ -45,18 +48,16 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
     </p>
       <p>
          The database environment's replication subsystem may also be
-         configured using the environment's 
-         <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> 
-         file.  The syntax of the entry in that file is a single line with
-         the string "rep_set_config", one or more whitespace characters,
-         and the method <span class="bold"><strong>which</strong></span> parameter as
-         a string and optionally one or more whitespace characters, and the
+         configured using the environment's <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file.  The syntax
+         of the entry in that file is a single line with the string
+         "rep_set_config", one or more whitespace characters, and the
+         method <span class="bold"><strong>which</strong></span> parameter as a
+         string and optionally one or more whitespace characters, and the
          string "on" or "off".  If the optional string is omitted, the
          default is "on"; for example, "rep_set_config DB_REP_CONF_NOWAIT"
-         or "rep_set_config DB_REP_CONF_NOWAIT on". Because the
-         <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> 
-         file is read when the database environment is opened, it will silently
-         overrule configuration done before that time.
+         or "rep_set_config DB_REP_CONF_NOWAIT on". Because the <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a>
+         file is read when the database environment is opened, it will
+         silently overrule configuration done before that time.
     </p>
       <p>
          The <code class="methodname">DB_ENV-&gt;rep_set_config()</code> method configures a database
@@ -87,7 +88,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3699490"></a>Parameters</h3>
+              <h3 class="title"><a id="idp62067368"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -95,7 +96,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3698787"></a>which</h4>
+                <h4 class="title"><a id="idp62002696"></a>which</h4>
               </div>
             </div>
           </div>
@@ -142,43 +143,65 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
                         Store internal replication information in memory only.
                     </p>
                 <p>
-                        By default, replication creates files in the environment home directory
-                        to preserve some internal information. If this configuration flag is turned
-                        on, replication only stores this internal information in-memory and cannot
-                        keep persistent state across a site crash or reboot. This results in the
-                        following limitations:
+                        By default, replication creates files in the
+                        environment home directory to preserve some
+                        internal information. If this configuration flag is
+                        turned on, replication only stores this internal
+                        information in-memory and cannot keep persistent
+                        state across a site crash or reboot. This results
+                        in the following limitations:
                     </p>
                 <div class="itemizedlist">
                   <ul type="circle">
                     <li>
                       <p>
-                                A master site should not reappoint itself master
-                                immediately after crashing or rebooting because the application would incur a
-                                slightly higher risk of client crashes. The former master site should rejoin
-                                the replication group as a client. The application should either hold an
-                                election or appoint a different site to be the next master.
+                                A master site should not reappoint itself
+                                master immediately after crashing or
+                                rebooting because the application would
+                                incur a slightly higher risk of client
+                                crashes. The former master site should
+                                rejoin the replication group as a client.
+                                The application should either hold an
+                                election or appoint a different site to be
+                                the next master.
                             </p>
                     </li>
                     <li>
                       <p>
-                                An application has a slightly higher risk that elections will fail or be
-                                unable to complete. Calling additional elections should eventually yield a
-                                winner.
+                                An application has a slightly higher risk
+                                that elections will fail or be unable to
+                                complete. Calling additional elections
+                                should eventually yield a winner.
                             </p>
                     </li>
                     <li>
                       <p>
-                                An application has a slight risk that the wrong site may win an election,
-                                resulting in the loss of some data. This is consistent with the general loss
-                                of data durability when running in-memory.
+                                An application has a slight risk that the
+                                wrong site may win an election, resulting
+                                in the loss of some data. This is
+                                consistent with the general loss of data
+                                durability when running in-memory.
+                            </p>
+                    </li>
+                    <li>
+                      <p>
+                                Replication Manager applications will no
+                                longer maintain group membership
+                                information persistently on-disk. For more
+                                information, see <a href="../../programmer_reference/rep_filename.html" class="olink">Managing Replication Files</a> in the
+                                <em class="citetitle">Berkeley DB Programmer's Reference Guide</em>.
                             </p>
                     </li>
                   </ul>
                 </div>
                 <p>
-                        This configuration flag can only be turned on before the environment
-                        is opened with the <a class="xref" href="envopen.html" title="DB_ENV-&gt;open()">DB_ENV-&gt;open()</a>
-                        method. Its value cannot be changed while the environment is open.
+                        This configuration flag can only be turned on
+                        before the environment is opened with the 
+                        <a class="xref" href="envopen.html" title="DB_ENV-&gt;open()">DB_ENV-&gt;open()</a>
+                        method. Its value cannot be changed while the
+                        environment is open.  All sites in the replication
+                        group should have the same value for this
+                        configuration flag.
                     </p>
               </li>
               <li>
@@ -256,10 +279,13 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
                         elections, even in a group with only 2 sites.  This means the client
                         in a 2-site group will be unable to take over as master if the
                         original master fails or becomes disconnected.  (See the 
-                        <a href="../../programmer_reference/rep_elect.html" class="olink">Elections</a> 
+                        <a href="../../programmer_reference/rep_twosite.html" class="olink">
+                            Special considerations for two-site replication groups
+                        </a> 
                         section in the <em class="citetitle">Berkeley DB Programmer's Reference Guide</em> for more information.)  
                         Both sites in the replication group should have the same value for this 
-                        configuration flag.
+                        configuration flag. This option is turned on by
+                        default.
                     </p>
               </li>
             </ul>
@@ -269,7 +295,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3699694"></a>onoff</h4>
+                <h4 class="title"><a id="idp62095944"></a>onoff</h4>
               </div>
             </div>
           </div>
@@ -285,7 +311,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3699609"></a>Errors</h3>
+              <h3 class="title"><a id="idp62075080"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -301,7 +327,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3699980"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp62086520"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -317,7 +343,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3699781"></a>Class</h3>
+              <h3 class="title"><a id="idp62078040"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -329,7 +355,7 @@ DB_ENV-&gt;rep_set_config(DB_ENV *env, u_int32_t which, int onoff);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3699382"></a>See Also</h3>
+              <h3 class="title"><a id="idp62025768"></a>See Also</h3>
             </div>
           </div>
         </div>

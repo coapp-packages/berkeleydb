@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  * 
- * Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 
@@ -20,8 +20,9 @@ import java.net.Socket;
  * Miscellaneous utilities used by repmgr tests.
  */
 public class Util {
-    public static Process startFiddler(PortsConfig p, String testName) throws Exception {
-        int mgrPort = p.getManagerPort();
+    public static Process startFiddler(PortsConfig p, String testName, int mgrPort)
+        throws Exception
+    {
         ProcessBuilder pb =
             new ProcessBuilder("erl", "-noshell",
                                "-s", "fiddler1", "startn",

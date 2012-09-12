@@ -20,8 +20,11 @@ typedef	uintptr_t	roff_t;
 typedef u_int32_t uintptr_t;
 typedef int int32_t;
 typedef int64_t db_seq_t;
+typedef int64_t off_t;
 typedef long long int int64_t;
+typedef u_int32_t DB_BACKUP_CONFIG;
 typedef u_int32_t DB_CACHE_PRIORITY;
+typedef u_int32_t DB_MEM_CONFIG;
 
 %csmethodmodifiers "internal";
 %typemap(csclassmodifiers) SWIGTYPE "internal class"
@@ -34,9 +37,10 @@ typedef u_int32_t DB_CACHE_PRIORITY;
 typedef enum {
 	DB_BTREE=1,
 	DB_HASH=2,
+	DB_HEAP=6,
 	DB_RECNO=3,
 	DB_QUEUE=4,
-	DB_UNKNOWN=5			/* Figure it out on open. */
+	DB_UNKNOWN=5                    /* Figure it out on open. */
 } DBTYPE;
 
 typedef enum {
@@ -76,12 +80,14 @@ typedef enum {
 } db_recops;
 
 struct __db;			typedef struct __db DB;
+struct __db_channel;		typedef struct __db_channel DB_CHANNEL;
 struct __db_compact;	typedef struct __db_compact DB_COMPACT;
 struct __db_lock_u;		typedef struct __db_lock_u DB_LOCK;
 struct __db_lsn;		typedef struct __db_lsn DB_LSN;
 struct __db_preplist;	typedef struct __db_preplist DB_PREPLIST;
 struct __db_repmgrsite; typedef struct __db_repmgrsite DB_REPMGR_SITE;
 struct __db_sequence;	typedef struct __db_sequence DB_SEQUENCE;
+struct __db_site;	typedef struct __db_site DB_SITE;
 struct __dbc;			typedef struct __dbc DBC;
 struct __dbenv;			typedef struct __dbenv DB_ENV;
 struct __dbt;			typedef struct __dbt DBT;
@@ -98,6 +104,9 @@ struct __db_txn_token;	typedef struct __db_txn_token DB_TXN_TOKEN;
 %typemap(cstype) int * "ref int"
 %typemap(imtype) int * "ref int"
 %typemap(csin) int * "ref $csinput"
+%typemap(cstype) long * "ref long"
+%typemap(imtype) long * "ref long"
+%typemap(csin) long * "ref $csinput"
 %typemap(cstype) u_int32_t * "ref uint"
 %typemap(imtype) u_int32_t * "ref uint"
 %typemap(csin) u_int32_t * "ref $csinput"
@@ -200,6 +209,10 @@ struct __db_txn_token;	typedef struct __db_txn_token DB_TXN_TOKEN;
 %typemap(csout) int log_file{
 		return $imcall;
 }
+%typemap(csout) void *wrap_umalloc {
+	return $imcall;
+}
+
 
 %typemap(csout) int open {
 	int ret;
@@ -237,7 +250,7 @@ struct __db_txn_token;	typedef struct __db_txn_token DB_TXN_TOKEN;
 %typemap(csout) DB_REPMGR_SITE *repmgr_site_list(u_int *countp, u_int *sizep, int *err) {
 	IntPtr cPtr = $imcall;
 	if (cPtr == IntPtr.Zero)
-		return new RepMgrSite[] { null };
+		return null;
 	/*
 	 * This is a big kludgy, but we need to free the memory that
 	 * repmgr_site_list mallocs.  The RepMgrSite constructors will copy all
@@ -303,6 +316,37 @@ struct __db_txn_token;	typedef struct __db_txn_token DB_TXN_TOKEN;
 		return ret;
 }
 
+typedef struct __db_channel
+{
+%extend {
+	int close(u_int32_t flags) {
+		return self->close(self, flags);
+	}
+
+	%typemap(cstype) DBT *msg "IntPtr[]"
+	%typemap(imtype) DBT *msg "IntPtr[]"
+	%typemap(csin) DBT *msg "$csinput"
+	int send_msg(DBT *msg, u_int32_t nmsg, u_int32_t flags) {
+		return self->send_msg(self, msg, nmsg, flags);
+	}
+
+	%typemap(cstype) DBT *request "IntPtr[]"
+	%typemap(imtype) DBT *request "IntPtr[]"
+	%typemap(csin) DBT *request "$csinput"
+
+	%typemap(cstype) DBT *response "DatabaseEntry"
+	%typemap(imtype) DBT *response "IntPtr"
+	%typemap(csin, post="      GC.KeepAlive($csinput);") DBT *response "$csclassname.getCPtr(DatabaseEntry.getDBT($csinput)).Handle"
+	int send_request(DBT * request, u_int32_t nrequest, DBT *response, db_timeout_t timeout, u_int32_t flags) {
+		return self->send_request(self, request, nrequest, response, timeout, flags);
+	}
+
+	int set_timeout(db_timeout_t timeout) {
+		return self->set_timeout(self, timeout);
+	}
+}
+} DB_CHANNEL;
+
 typedef struct __db_compact {
 	/* Input Parameters. */
 	%typemap(csvarout) u_int32_t compact_fillpercent %{%}              
@@ -359,6 +403,14 @@ typedef struct __db_lsn {
 		IntPtr ptr = stat(txn, flags, ref err);
 		DatabaseException.ThrowException(err);
 		HashStatStruct ret = (HashStatStruct)Marshal.PtrToStructure(ptr, typeof(HashStatStruct));
+		libdb_csharp.__os_ufree(null, ptr);
+		return ret;
+	}
+	internal HeapStatStruct stat_heap(DB_TXN txn, uint flags) {
+		int err = 0;
+		IntPtr ptr = stat(txn, flags, ref err);
+		DatabaseException.ThrowException(err);
+		HeapStatStruct ret = (HeapStatStruct)Marshal.PtrToStructure(ptr, typeof(HeapStatStruct));
 		libdb_csharp.__os_ufree(null, ptr);
 		return ret;
 	}
@@ -601,6 +653,20 @@ typedef struct __db
 		return self->set_flags(self, flags);
 	}
 	
+	int get_heapsize(u_int32_t *gbytes, u_int32_t *bytes) {
+		return self->get_heapsize(self, gbytes, bytes);
+	}
+	int set_heapsize(u_int32_t gbytes, u_int32_t bytes) {
+		return self->set_heapsize(self, gbytes, bytes, 0);
+	}
+	
+	int get_heap_regionsize(u_int32_t *npages) {
+		return self->get_heap_regionsize(self, npages);
+	}
+	int set_heap_regionsize(u_int32_t npages) {
+		return self->set_heap_regionsize(self, npages);
+	}
+	
 	int set_h_compare(int (*callback)(DB *dbp, const DBT *dbt1, const DBT *dbt2)) {
 		return self->set_h_compare(self, callback);
 	}
@@ -624,6 +690,13 @@ typedef struct __db
 	}
 	int set_h_nelem(u_int32_t nelem) {
 		return self->set_h_nelem(self, nelem);
+	}
+	
+	int get_lk_exclusive(int *onoff, int *nowait) {
+		return self->get_lk_exclusive(self, onoff, nowait);
+	}
+	int set_lk_exclusive(int nowait) {
+		return self->set_lk_exclusive(self, nowait);
 	}
 	
 	int get_lorder(int *lorder) {
@@ -813,6 +886,9 @@ u_int8_t buf[DB_TXN_TOKEN_SIZE];
 		get {
 			return $imclassname.DBT_data_get(swigCPtr);
 		}
+		set {
+			$imclassname.DBT_data_set(swigCPtr, value);
+		}
 	}
 %}
 typedef struct __dbt
@@ -865,6 +941,46 @@ typedef struct __dbt
 	}
 }
 } DBT;
+
+%typemap(cscode) DB_SITE %{
+	internal int get_address(out string hostp, ref uint port) {
+		int ret;
+		IntPtr hp;
+		ret = get_address(out hp, ref port);
+		hostp = Marshal.PtrToStringAnsi(hp);
+		DatabaseException.ThrowException(ret);
+		return ret;
+	}
+%}
+
+typedef struct __db_site
+{
+%extend {
+	int close() {
+		return self->close(self);
+	}
+
+	int get_address(const char **hostp, u_int *port) {
+		return self->get_address(self, hostp, port);
+	}
+
+	int get_config(u_int32_t which, u_int32_t *onp) {
+		return self->get_config(self, which, onp);
+	}
+
+	int get_eid(int *eidp) {
+		return self->get_eid(self, eidp);
+	}
+
+	int remove() {
+		return self->remove(self);
+	}
+
+	int set_config(u_int32_t which, u_int32_t value) {
+		return self->set_config(self, which, value);
+	}
+}
+} DB_SITE;
 
 typedef struct __db_repmgrsite
 {
@@ -1042,13 +1158,28 @@ typedef struct __dbtxn
 		libdb_csharp.__os_ufree(null, ptr);
 		return ret;
 	}
-	internal int repmgr_get_local_site(out string hostp, ref uint portp) {
-		int ret;
-		IntPtr hp;
-		hostp = null;
-		portp = 0;
-		ret = repmgr_get_local_site(out hp, ref portp);		
-		hostp = Marshal.PtrToStringAnsi(hp);
+	internal DB_CHANNEL repmgr_channel(int eid, uint flags) {
+		int err = 0;
+		DB_CHANNEL ret = repmgr_channel(eid, flags, ref err);
+		DatabaseException.ThrowException(err);
+		return ret;
+	}
+	internal DB_SITE repmgr_local_site() {
+		int err = 0;
+		DB_SITE ret = repmgr_local_site(ref err);
+		DatabaseException.ThrowException(err);
+		return ret;
+	}
+	internal DB_SITE repmgr_site(string host, uint port) {
+		int err = 0;
+		DB_SITE ret = repmgr_site(host, port, ref err);
+		DatabaseException.ThrowException(err);
+		return ret;
+	}
+	internal DB_SITE repmgr_site_by_eid(int eid) {
+		int err = 0;
+		DB_SITE ret = repmgr_site_by_eid(eid, ref err);
+		DatabaseException.ThrowException(err);
 		return ret;
 	}
 	internal RepMgrSite[] repmgr_site_list() {
@@ -1081,14 +1212,14 @@ typedef struct __dbtxn
 		DatabaseException.ThrowException(err);
 		return ret;
 	}
-	internal PreparedTransaction[] txn_recover(uint count, uint flags) {
+	internal PreparedTransaction[] txn_recover(int count, uint flags) {
 		int err = 0;
 		IntPtr prepp = Marshal.AllocHGlobal((int)(count * (IntPtr.Size + DbConstants.DB_GID_SIZE)));
-		uint sz = 0;
+		long sz = 0;
 		err = txn_recover(prepp, count, ref sz, flags);
 		DatabaseException.ThrowException(err);
 		PreparedTransaction[] ret = new PreparedTransaction[sz];
-		for (int i = 0; i < sz; i++) {
+		for (long i = 0; i < sz; i++) {
 			IntPtr cPtr = new IntPtr((IntPtr.Size == 4 ? prepp.ToInt32() : prepp.ToInt64()) + i * (IntPtr.Size + DbConstants.DB_GID_SIZE));
 			DB_PREPLIST prep = new DB_PREPLIST(cPtr, false);
 			ret[i] = new PreparedTransaction(prep);
@@ -1142,6 +1273,13 @@ typedef struct __dbtxn
 		dir = Marshal.PtrToStringAnsi(dirp);
 		return ret;
 	}
+	internal int get_metadata_dir(out string dir) {
+		int ret;
+		IntPtr dirp;
+		ret = get_metadata_dir(out dirp);
+		dir = Marshal.PtrToStringAnsi(dirp);
+		return ret;
+	}
 	internal int get_tmp_dir(out string dir) {
 		int ret;
 		IntPtr dirp;
@@ -1182,6 +1320,10 @@ typedef struct __dbenv
 	
 	~DB_ENV() { }
 
+	int backup(const char *target, u_int32_t flags) {
+		return self->backup(self, target, flags);
+	}
+
 	%csmethodmodifiers cdsgroup_begin "private"
 	DB_TXN *cdsgroup_begin(int *err) {
 		DB_TXN *group;
@@ -1192,6 +1334,10 @@ typedef struct __dbenv
 	 
 	int close(u_int32_t flags) {
 		return self->close(self, flags);
+	}
+
+	int dbbackup(const char *dbfile, const char *target, u_int32_t flags) {
+		return self->dbbackup(self, dbfile, target, flags);
 	}
 	
 	int dbremove(DB_TXN *txn, const char *file, const char *database, u_int32_t flags) {
@@ -1422,6 +1568,13 @@ typedef struct __dbenv
 		return self->mutex_set_increment(self, increment);
 	}
 	
+	int mutex_get_init(u_int32_t *init) {
+		return self->mutex_get_init(self, init);
+	}
+	int mutex_set_init(u_int32_t init) {
+		return self->mutex_set_init(self, init);
+	}
+	
 	int mutex_get_max(u_int32_t *max) {
 		return self->mutex_get_max(self, max);
 	}
@@ -1448,10 +1601,6 @@ typedef struct __dbenv
 		return self->remove(self, db_home, flags);
 	}
 	
-	int repmgr_add_remote_site(const char *host, u_int port, int *eidp, u_int32_t flags) {
-		return self->repmgr_add_remote_site(self, host, port, eidp, flags);
-	}
-
 	int repmgr_set_ack_policy(int ack_policy) {
 		return self->repmgr_set_ack_policy(self, ack_policy);
 	}
@@ -1459,11 +1608,36 @@ typedef struct __dbenv
 		return self->repmgr_get_ack_policy(self, ack_policy);
 	}
 
-	int repmgr_get_local_site(const char **host, u_int *port) {
-		return self->repmgr_get_local_site(self, host, port);
+	DB_CHANNEL *repmgr_channel(int eid, u_int32_t flags, int *err) {
+		DB_CHANNEL *channel = NULL;
+		*err = self->repmgr_channel(self, eid, &channel, flags);
+		return channel;
 	}
-	int repmgr_set_local_site(const char *host, u_int port, u_int32_t flags) {
-		return self->repmgr_set_local_site(self, host, port, flags);
+
+	DB_SITE *repmgr_local_site(int *err) {
+		DB_SITE *sitep = NULL;
+		*err = self->repmgr_local_site(self, &sitep);
+		return sitep;
+	}
+
+	%typemap(cstype) void (*)(DB_ENV *, DB_CHANNEL *, DBT *, u_int32_t, u_int32_t) "BDB_MessageDispatchDelegate"
+	%typemap(imtype) void (*)(DB_ENV *, DB_CHANNEL *, DBT *, u_int32_t, u_int32_t) "BDB_MessageDispatchDelegate"
+	%typemap(csin) void (*dispatch)(DB_ENV *, DB_CHANNEL *, DBT *, u_int32_t, u_int32_t) "dispatch"
+	int repmgr_msg_dispatch(
+	    void (*dispatch)(DB_ENV *, DB_CHANNEL *, DBT *, u_int32_t, u_int32_t), u_int32_t flags) {
+		return self->repmgr_msg_dispatch(self, dispatch, flags);
+	}
+
+	DB_SITE *repmgr_site(char *host, u_int port, int *err) {
+		DB_SITE *sitep= NULL;
+		*err = self->repmgr_site(self, host, port, &sitep, 0);
+		return sitep;
+	}
+
+	DB_SITE *repmgr_site_by_eid(int eid, int *err){
+		DB_SITE *sitep= NULL;
+		*err = self->repmgr_site_by_eid(self, eid, &sitep);
+		return sitep;
 	}
 
 	%typemap(cstype) DB_REPMGR_SITE * "RepMgrSite[]"
@@ -1576,7 +1750,27 @@ typedef struct __dbenv
 	int rep_set_transport(int envid, int (*send)(DB_ENV *dbenv, const DBT *control, const DBT *rec, const DB_LSN *lsnp, int envid, u_int32_t flags)) {
 		return self->rep_set_transport(self, envid, send);
 	}
-	
+
+	%typemap(cstype) int (*)(DB_ENV*, const char *dbname, void *handle) "BDB_BackupCloseDelegate"
+	%typemap(imtype) int (*)(DB_ENV*, const char *dbname, void *handle) "BDB_BackupCloseDelegate"
+	%typemap(csin) int (*close_func)(DB_ENV *, const char *dbname, void *handle) "close_func"
+	%typemap(cstype) int (*)(DB_ENV *, const char *dbname, const char *target, void **handle) "BDB_BackupOpenDelegate"
+	%typemap(imtype) int (*)(DB_ENV *, const char *dbname, const char *target, void **handle) "BDB_BackupOpenDelegate"
+	%typemap(csin) int (*open_func)(DB_ENV *, const char *dbname, const char *target, void **handle) "open_func"
+	%typemap(cstype) int (*)(DB_ENV *, u_int32_t off_gbytes, u_int32_t off_bytes, u_int32_t size, u_int8_t *buf, void *handle) "BDB_BackupWriteDelegate"
+	%typemap(imtype) int (*)(DB_ENV *, u_int32_t off_btytes, u_int32_t off_bytes, u_int32_t size, u_int8_t *buf, void *handle) "BDB_BackupWriteDelegate"
+	%typemap(csin) int (*write_func)(DB_ENV *, u_int32_t off_gbytes, u_int32_t off_bytes, u_int32_t size, u_int8_t *buf, void *handle) "write_func"
+	int set_backup_callbacks(int (*open_func)(DB_ENV *, const char *dbname, const char *target, void **handle), int (*write_func)(DB_ENV *, u_int32_t off_gbytes, u_int32_t off_bytes, u_int32_t size, u_int8_t *buf, void *handle), int (*close_func)(DB_ENV *, const char *dbname, void *handle)) {
+		return self->set_backup_callbacks(self, open_func, write_func, close_func);
+	}
+
+	int get_backup_config(DB_BACKUP_CONFIG cfg, u_int32_t *value) {
+		return self->get_backup_config(self, cfg, value);
+	}
+	int set_backup_config(DB_BACKUP_CONFIG cfg, u_int32_t value) {
+		return self->set_backup_config(self, cfg, value);
+	}
+
 	int get_cachesize(u_int32_t *gbytes, u_int32_t *bytes, int *ncache) {
 		return self->get_cachesize(self, gbytes, bytes, ncache);
 	}
@@ -1761,6 +1955,34 @@ typedef struct __dbenv
 	}
 	int set_lk_partitions(u_int32_t max) {
 		return self->set_lk_partitions(self, max);
+	}
+	
+	int get_lk_tablesize(u_int32_t *tablesize) {
+		return self->get_lk_tablesize(self, tablesize);
+	}
+	int set_lk_tablesize(u_int32_t tablesize) {
+		return self->set_lk_tablesize(self, tablesize);
+	}
+	
+	int get_memory_init(DB_MEM_CONFIG type, u_int32_t *count) {
+		return self->get_memory_init(self, type, count);
+	}
+	int set_memory_init(DB_MEM_CONFIG type, u_int32_t count) {
+		return self->set_memory_init(self, type, count);
+	}
+	
+	int get_memory_max(u_int32_t *gbytes, u_int32_t *bytes) {
+		return self->get_memory_max(self, gbytes, bytes);
+	}
+	int set_memory_max(u_int32_t gbytes, u_int32_t bytes) {
+		return self->set_memory_max(self, gbytes, bytes);
+	}
+	
+	int get_metadata_dir(const char **dir) {
+		return self->get_metadata_dir(self, dir);
+	}
+	int set_metadata_dir(const char *dir) {
+		return self->set_metadata_dir(self, dir);
 	}
 	
 	int get_mp_max_openfd(int *maxopenfd) {
@@ -1971,7 +2193,7 @@ typedef struct __dbenv
 	%typemap(cstype) DB_PREPLIST [] "IntPtr"
 	%typemap(imtype) DB_PREPLIST [] "IntPtr"
 	%typemap(csin) DB_PREPLIST [] "$csinput"
-	int txn_recover(DB_PREPLIST preplist[], u_int32_t count, u_int32_t *retp, u_int32_t flags) {
+	int txn_recover(DB_PREPLIST preplist[], long count, long *retp, u_int32_t flags) {
 		return self->txn_recover(self, preplist, count, retp, flags);
 	}
 
@@ -2037,6 +2259,31 @@ void wrap_ufree(DB_ENV *dbenv, void *ptr) {
 		__os_ufree(dbenv->env, ptr);
 }
 %}
+%typemap(cstype, out="IntPtr") void * "IntPtr"
+%typemap(cstype, out="out IntPtr") void ** "out IntPtr"
+%typemap(csin) void ** "out $csinput"
+%typemap(imtype, out="out IntPtr") void ** "out IntPtr"
+%rename(__os_umalloc) wrap_umalloc;
+%inline %{
+void *wrap_umalloc(DB_ENV *dbenv, size_t size) {
+	void *ptr;
+	if (dbenv == NULL)
+		__os_umalloc(NULL, size, &ptr);
+	else
+		__os_umalloc(dbenv->env, size, &ptr);
+	return ptr;
+}
+size_t alloc_dbt_arr(DB_ENV *dbenv, int num_dbt, void **ptr) {
+	size_t ret = sizeof(DBT);
+	if (dbenv == NULL)
+		__os_umalloc(NULL, num_dbt * ret, ptr);
+	else
+		__os_umalloc(dbenv->env, num_dbt * ret, ptr);
+	return ret;
+}
+%}
+
+
 
 typedef struct __db_preplist {
         %typemap(csvarin) u_int8_t gid[DB_GID_SIZE] %{%}

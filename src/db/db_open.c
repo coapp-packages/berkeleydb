@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -16,10 +16,13 @@
 #include "dbinc/hmac.h"
 #include "dbinc/fop.h"
 #include "dbinc/hash.h"
+#include "dbinc/heap.h"
 #include "dbinc/lock.h"
 #include "dbinc/mp.h"
 #include "dbinc/qam.h"
 #include "dbinc/txn.h"
+
+static int __db_handle_lock __P((DB *));
 
 /*
  * __db_open --
@@ -125,14 +128,14 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 	 */
 	if (fname == NULL) {
 		if (dbp->p_internal != NULL) {
-			__db_errx(env,
-		    "Partitioned databases may not be in memory.");
+			__db_errx(env, DB_STR("0634",
+			    "Partitioned databases may not be in memory."));
 			return (ENOENT);
 		}
 		if (dname == NULL) {
 			if (!LF_ISSET(DB_CREATE)) {
-				__db_errx(env,
-			    "DB_CREATE must be specified to create databases.");
+				__db_errx(env, DB_STR("0635",
+		    "DB_CREATE must be specified to create databases."));
 				return (ENOENT);
 			}
 
@@ -140,8 +143,8 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 			F_SET(dbp, DB_AM_CREATED);
 
 			if (dbp->type == DB_UNKNOWN) {
-				__db_errx(env,
-				    "DBTYPE of unknown without existing file");
+				__db_errx(env, DB_STR("0636",
+				    "DBTYPE of unknown without existing file"));
 				return (EINVAL);
 			}
 
@@ -191,11 +194,11 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 		 * So clear the RDONLY flag if we just created it.
 		 */
 		if (!F_ISSET(dbp, DB_AM_RDONLY))
-		 	LF_CLR(DB_RDONLY);
+			LF_CLR(DB_RDONLY);
 	} else {
 		if (dbp->p_internal != NULL) {
-			__db_errx(env,
-    "Partitioned databases may not be included with multiple databases.");
+			__db_errx(env, DB_STR("0637",
+    "Partitioned databases may not be included with multiple databases."));
 			return (ENOENT);
 		}
 		if ((ret = __fop_subdb_setup(dbp, ip,
@@ -214,22 +217,22 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 			ret = __db_new_file(dbp, ip, txn, NULL, NULL);
 		else {
 			id = TXN_INVALID;
-			if ((ret = __fop_file_setup(dbp, ip,
-			    txn, dname, mode, flags, &id)) == 0 &&
-			    DBENV_LOGGING(env) && !F_ISSET(dbp, DB_AM_RECOVER)
-#if !defined(DEBUG_ROP) && !defined(DEBUG_WOP) && !defined(DIAGNOSTIC)
-			    && txn != NULL
-#endif
-#if !defined(DEBUG_ROP)
-			    && !F_ISSET(dbp, DB_AM_RDONLY)
-#endif
-			)
-				ret = __dbreg_log_id(dbp,
-				    txn, dbp->log_filename->id, 1);
+			ret = __fop_file_setup(dbp,
+			     ip, txn, dname, mode, flags, &id);
 		}
 		if (ret != 0)
 			goto err;
 	}
+
+	/*
+	 * Internal exclusive databases need to use the shared
+	 * memory pool to lock out existing database handles before
+	 * it gets its handle lock.  So getting the lock is delayed
+	 * until after the memory pool is allocated.
+	 */
+	if (F2_ISSET(dbp, DB2_AM_INTEXCL) &&
+	    (ret = __db_handle_lock(dbp)) != 0)
+			goto err;
 
 	switch (dbp->type) {
 		case DB_BTREE:
@@ -237,6 +240,10 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 			break;
 		case DB_HASH:
 			ret = __ham_open(dbp, ip, txn, fname, meta_pgno, flags);
+			break;
+		case DB_HEAP:
+			ret = __heap_open(dbp,
+			    ip, txn, fname, meta_pgno, flags);
 			break;
 		case DB_RECNO:
 			ret = __ram_open(dbp, ip, txn, fname, meta_pgno, flags);
@@ -269,16 +276,18 @@ __db_open(dbp, ip, txn, fname, dname, type, flags, mode, meta_pgno)
 		if (IS_REAL_TXN(txn))
 			ret = __txn_lockevent(env,
 			    txn, dbp, &dbp->handle_lock, dbp->locker);
-		else if (LOCKING_ON(env))
-			/* Trade write handle lock for read handle lock. */
+		else if (LOCKING_ON(env) && !F2_ISSET(dbp, DB2_AM_EXCL))
+			/*
+			 * Trade write handle lock for read handle lock,
+			 * unless this is an exclusive database handle.
+			 */
 			ret = __lock_downgrade(env,
 			    &dbp->handle_lock, DB_LOCK_READ, 0);
 	}
 DB_TEST_RECOVERY_LABEL
 err:
-	if (dbp != NULL)
-		PERFMON4(env, db, open,
-		    (char *) fname, (char *) dname, flags, &dbp->fileid[0]);
+	PERFMON4(env,
+	    db, open, (char *) fname, (char *) dname, flags, &dbp->fileid[0]);
 	return (ret);
 }
 
@@ -316,6 +325,13 @@ __db_new_file(dbp, ip, txn, fhp, name)
 {
 	int ret;
 
+	/*
+	 * For in-memory database, it is created by mpool and doesn't
+	 * take any lock, so temporarily turn off the lock checking here.
+	 */
+	if (F_ISSET(dbp, DB_AM_INMEM))
+		LOCK_CHECK_OFF(ip);
+
 	switch (dbp->type) {
 	case DB_BTREE:
 	case DB_RECNO:
@@ -324,13 +340,17 @@ __db_new_file(dbp, ip, txn, fhp, name)
 	case DB_HASH:
 		ret = __ham_new_file(dbp, ip, txn, fhp, name);
 		break;
+	case DB_HEAP:
+		ret = __heap_new_file(dbp, ip, txn, fhp, name);
+		break;
 	case DB_QUEUE:
 		ret = __qam_new_file(dbp, ip, txn, fhp, name);
 		break;
 	case DB_UNKNOWN:
 	default:
-		__db_errx(dbp->env,
-		    "%s: Invalid type %d specified", name, dbp->type);
+		__db_errx(dbp->env, DB_STR_A("0638",
+		    "%s: Invalid type %d specified", "%s %d"),
+		    name, dbp->type);
 		ret = EINVAL;
 		break;
 	}
@@ -341,6 +361,9 @@ __db_new_file(dbp, ip, txn, fhp, name)
 		ret = __os_fsync(dbp->env, fhp);
 
 	DB_TEST_RECOVERY(dbp, DB_TEST_POSTSYNC, ret, name);
+
+	if (F_ISSET(dbp, DB_AM_INMEM))
+		LOCK_CHECK_ON(ip);
 
 DB_TEST_RECOVERY_LABEL
 	return (ret);
@@ -398,8 +421,9 @@ __db_init_subdb(mdbp, dbp, name, ip, txn)
 		break;
 	case DB_UNKNOWN:
 	default:
-		__db_errx(dbp->env,
-		    "Invalid subdatabase type %d specified", dbp->type);
+		__db_errx(dbp->env, DB_STR_A("0639",
+		    "Invalid subdatabase type %d specified", "%d"),
+		    dbp->type);
 		return (EINVAL);
 	}
 
@@ -411,7 +435,7 @@ err:	return (ret);
  *	Take a buffer containing a meta-data page and check it for a valid LSN,
  *	checksum (and verify the checksum if necessary) and possibly decrypt it.
  *
- *	Return 0 on success, >0 (errno) on error, -1 on checksum mismatch.
+ *	Return 0 on success, >0 (errno).
  *
  * PUBLIC: int __db_chk_meta __P((ENV *, DB *, DBMETA *, u_int32_t));
  */
@@ -454,7 +478,7 @@ chk_retry:		if ((ret =
 			    __db_check_chksum(env, NULL, env->crypto_handle,
 			    chksum, meta, DBMETASIZE, is_hmac)) != 0) {
 				if (is_hmac || swapped)
-					return (ret);
+					return (DB_CHKSUM_FAIL);
 
 				M_32_SWAP(orig_chk);
 				swapped = 1;
@@ -466,8 +490,10 @@ chk_retry:		if ((ret =
 		F_CLR(dbp, DB_AM_CHKSUM);
 
 #ifdef HAVE_CRYPTO
-	ret = __crypto_decrypt_meta(env,
-	     dbp, (u_int8_t *)meta, LF_ISSET(DB_CHK_META));
+	if (__crypto_decrypt_meta(env,
+	     dbp, (u_int8_t *)meta, LF_ISSET(DB_CHK_META)) != 0)
+	     	ret = DB_CHKSUM_FAIL;
+	else
 #endif
 
 	/* Now that we're decrypted, we can check LSN. */
@@ -489,6 +515,7 @@ lsn_retry:
 		switch (magic) {
 		case DB_BTREEMAGIC:
 		case DB_HASHMAGIC:
+		case DB_HEAPMAGIC:
 		case DB_QAMMAGIC:
 		case DB_RENAMEMAGIC:
 			break;
@@ -544,6 +571,7 @@ swap_retry:
 	switch (magic) {
 	case DB_BTREEMAGIC:
 	case DB_HASHMAGIC:
+	case DB_HEAPMAGIC:
 	case DB_QAMMAGIC:
 	case DB_RENAMEMAGIC:
 		break;
@@ -575,11 +603,14 @@ swap_retry:
 	 * checksum and decrypt.  Don't distinguish between configuration and
 	 * checksum match errors here, because we haven't opened the database
 	 * and even a checksum error isn't a reason to panic the environment.
+	 * If DB_SKIP_CHK is set, it means the checksum was already checked
+	 * and the page was already decrypted.
 	 */
-	if ((ret = __db_chk_meta(env, dbp, meta, flags)) != 0) {
-		if (ret == -1)
-			__db_errx(env,
-			    "%s: metadata page checksum error", name);
+	if (!LF_ISSET(DB_SKIP_CHK) && 
+	    (ret = __db_chk_meta(env, dbp, meta, flags)) != 0) {
+		if (ret == DB_CHKSUM_FAIL) 
+			__db_errx(env, DB_STR_A("0640",
+			    "%s: metadata page checksum error", "%s"), name);
 		goto bad_format;
 	}
 
@@ -607,6 +638,15 @@ swap_retry:
 		dbp->type = DB_HASH;
 		if ((oflags & DB_TRUNCATE) == 0 && (ret =
 		    __ham_metachk(dbp, name, (HMETA *)meta)) != 0)
+			return (ret);
+		break;
+	case DB_HEAPMAGIC:
+		if (dbp->type != DB_UNKNOWN && dbp->type != DB_HEAP)
+			goto bad_format;
+
+		dbp->type = DB_HEAP;
+		if ((oflags & DB_TRUNCATE) == 0 && (ret =
+		    __heap_metachk(dbp, name, (HEAPMETA *)meta)) != 0)
 			return (ret);
 		break;
 	case DB_QAMMAGIC:
@@ -639,9 +679,9 @@ bad_format:
 	if (F_ISSET(dbp, DB_AM_RECOVER))
 		ret = ENOENT;
 	else
-		__db_errx(env,
+		__db_errx(env, DB_STR_A("0641",
 		    "__db_meta_setup: %s: unexpected file type or format",
-		    name);
+		    "%s"), name);
 	return (ret == 0 ? EINVAL : ret);
 }
 
@@ -672,6 +712,8 @@ __db_reopen(arg_dbc)
 	COMPQUIET(bt, NULL);
 	COMPQUIET(ht, NULL);
 	COMPQUIET(txn, NULL);
+	LOCK_INIT(new_lock);
+	LOCK_INIT(old_lock);
 
 	/*
 	 * This must be done in the context of a transaction.  If the
@@ -711,6 +753,17 @@ __db_reopen(arg_dbc)
 	    dbc->thread_info, dbc->txn, 0, &old_page)) != 0 &&
 	    ret != DB_PAGE_NOTFOUND)
 		goto err;
+
+	/* If the page is free we must not hold its lock. */
+	if (ret == DB_PAGE_NOTFOUND || TYPE(old_page) == P_INVALID) {
+		if ((ret = __LPUT(dbc, old_lock)) != 0)
+			goto err;
+		/* Drop the latch too. */
+		if (old_page != NULL && (ret = __memp_fput(dbp->mpf,
+		    dbc->thread_info, old_page, dbc->priority)) != 0)
+			goto err;
+		old_page = NULL;
+	}
 
 	if ((ret = __db_master_open(dbp,
 	    dbc->thread_info, dbc->txn, dbp->fname, 0, 0, &mdbp)) != 0)
@@ -763,5 +816,42 @@ err:	if (old_page != NULL && (t_ret = __memp_fput(dbp->mpf,
 		if ((t_ret = __txn_commit(txn, 0)) != 0 && ret == 0)
 			ret = t_ret;
 	}
+	return (ret);
+}
+
+static int
+__db_handle_lock(dbp)
+	DB *dbp;
+{
+	ENV *env;
+	int ret;
+	u_int32_t old_flags;
+
+	env = dbp->env;
+	ret = 0;
+	old_flags = dbp->flags;
+
+	/*
+	 * Internal exclusive database handles need to get and hold
+	 * their own handle locks so that the client cannot open any
+	 * external handles on that database.
+	 */
+	F_CLR(dbp, DB_AM_RECOVER);
+	F_SET(dbp, DB_AM_NOT_DURABLE);
+
+	/* Begin exclusive handle lockout. */
+	dbp->mpf->mfp->excl_lockout = 1;
+
+	if ((ret = __lock_id(env, NULL, &dbp->locker)) != 0)
+		goto err;
+	LOCK_INIT(dbp->handle_lock);
+	if ((ret = __fop_lock_handle(env, dbp, dbp->locker, DB_LOCK_WRITE,
+	    NULL, 0))!= 0)
+		goto err;
+
+err:	/* End exclusive handle lockout. */
+	dbp->mpf->mfp->excl_lockout = 0;
+	dbp->flags = old_flags;
+
 	return (ret);
 }

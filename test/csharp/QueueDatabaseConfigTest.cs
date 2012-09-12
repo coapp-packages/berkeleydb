@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -19,7 +19,7 @@ namespace CsharpAPITest
 	{
 
 		[TestFixtureSetUp]
-		public void SetUpTestFixture()
+		public override void SetUpTestFixture()
 		{
 			testFixtureName = "QueueDatabaseConfigTest";
 			base.SetUpTestfixture();

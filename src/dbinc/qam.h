@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -114,7 +114,7 @@ typedef struct __qam_filelist {
     QAM_PAGE_EXTENT(dbp, QAM_RECNO_PAGE(dbp, recno))
 
 #define	QAM_RECNO_INDEX(dbp, pgno, recno)				\
-    (((recno) - 1) - (QAM_RECNO_PER_PAGE(dbp)				\
+    (u_int32_t)(((recno) - 1) - (QAM_RECNO_PER_PAGE(dbp)		\
     * (pgno - ((QUEUE *)(dbp)->q_internal)->q_root)))
 
 #define	QAM_GET_RECORD(dbp, page, index)				\
@@ -122,21 +122,44 @@ typedef struct __qam_filelist {
     (DB_ALIGN((uintmax_t)SSZA(QAMDATA, data) +				\
     ((QUEUE *)(dbp)->q_internal)->re_len, sizeof(u_int32_t)) * index))))
 
+#define QAM_OUTSIDE_QUEUE(meta, recno)					\
+	(((meta)->cur_recno >= (meta)->first_recno ?			\
+	    ((recno) < (meta)->first_recno ||				\
+	         (recno) > (meta)->cur_recno) :				\
+	    ((recno) > (meta)->cur_recno && 				\
+	        (recno) < (meta)->first_recno)))
+
 #define	QAM_AFTER_CURRENT(meta, recno)					\
-    ((recno) >= (meta)->cur_recno &&					\
-    ((meta)->first_recno <= (meta)->cur_recno ||			\
-    ((recno) < (meta)->first_recno &&					\
-    (recno) - (meta)->cur_recno < (meta)->first_recno - (recno))))
+	((recno) == (meta)->cur_recno ||				\
+	(QAM_OUTSIDE_QUEUE(meta, recno) &&				\
+        ((recno) - (meta)->cur_recno) <= ((meta)->first_recno - (recno))))
 
 #define	QAM_BEFORE_FIRST(meta, recno)					\
-    ((recno) < (meta)->first_recno &&					\
-    ((meta)->first_recno <= (meta)->cur_recno ||			\
-    ((recno) > (meta)->cur_recno &&					\
-    (recno) - (meta)->cur_recno > (meta)->first_recno - (recno))))
+	(QAM_OUTSIDE_QUEUE(meta, recno) &&				\
+	((meta)->first_recno - (recno)) < ((recno) - (meta)->cur_recno))
 
 #define	QAM_NOT_VALID(meta, recno)					\
     (recno == RECNO_OOB ||						\
 	QAM_BEFORE_FIRST(meta, recno) || QAM_AFTER_CURRENT(meta, recno))
+
+#define QAM_WAKEUP(dbc, ret) do {					\
+	if (STD_LOCKING(dbc)) {						\
+		dbc->lock.pgno = PGNO_INVALID;				\
+		dbc->lock.type = DB_PAGE_LOCK;				\
+		ret = __lock_wakeup((dbc)->dbp->env, &(dbc)->lock_dbt);	\
+	} else								\
+		ret = 0;						\
+} while (0)
+
+/* Handle wrap around. */
+#define QAM_INC_RECNO(recno) do {					\
+	recno++;							\
+} while (recno == RECNO_OOB)
+
+#define QAM_DEC_RECNO(recno) do {					\
+	recno--;							\
+} while (recno == RECNO_OOB)
+
 
 /*
  * Log opcodes for the mvptr routine.

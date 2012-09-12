@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -41,8 +41,7 @@ namespace BerkeleyDB {
         }
 
         /// <summary>
-        /// Construct a new bulk buffer for key/data pairs referring to 
-        /// <paramref name="type"/>.
+        /// Construct a new bulk buffer for key/data pairs.
         /// </summary>
         /// <param name="recno">
         /// Whether the bulk buffer is for queue/recno database

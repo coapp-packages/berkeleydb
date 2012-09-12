@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -18,24 +18,64 @@ namespace BerkeleyDB {
     /// </summary>
     public class DatabaseEnvironment {
         internal DB_ENV dbenv;
+        private IBackup backupObj;
         private ErrorFeedbackDelegate errFeedbackHandler;
         private EnvironmentFeedbackDelegate feedbackHandler;
         private ThreadIsAliveDelegate isAliveHandler;
         private EventNotifyDelegate notifyHandler;
+        private MessageDispatchDelegate messageDispatchHandler;
         private ReplicationTransportDelegate transportHandler;
         private SetThreadIDDelegate threadIDHandler;
         private SetThreadNameDelegate threadNameHandler;
         private string _pfx;
         private DBTCopyDelegate CopyDelegate;
+        private BDB_BackupCloseDelegate doBackupCloseRef;
+        private BDB_BackupOpenDelegate doBackupOpenRef;
+        private BDB_BackupWriteDelegate doBackupWriteRef;
         private BDB_ErrcallDelegate doErrFeedbackRef;
         private BDB_EnvFeedbackDelegate doFeedbackRef;
         private BDB_EventNotifyDelegate doNotifyRef;
         private BDB_IsAliveDelegate doIsAliveRef;
+        private BDB_MessageDispatchDelegate doMessageDispatchRef;
         private BDB_RepTransportDelegate doRepTransportRef;
         private BDB_ThreadIDDelegate doThreadIDRef;
         private BDB_ThreadNameDelegate doThreadNameRef;
 
+        private static long GIGABYTE = (long)(1 << 30);
+
         #region Callbacks
+        private static int doBackupClose(IntPtr env, string dbname, IntPtr handle) {
+            DB_ENV dbenv = new DB_ENV(env, false);
+            return dbenv.api2_internal.backupObj.Close(dbname);
+        }
+        private static int doBackupOpen(IntPtr env, string dbname, string target, IntPtr handle) {
+            DB_ENV dbenv = new DB_ENV(env, false);
+            return dbenv.api2_internal.backupObj.Open(dbname, target);
+        }
+        private static int doBackupWrite(IntPtr env, uint off_gbytes, uint off_bytes, uint usize, IntPtr buf, IntPtr handle) {
+            int ret, size;
+            long offset = off_gbytes * GIGABYTE + off_bytes;
+            DB_ENV dbenv = new DB_ENV(env, false);
+            if (usize > Int32.MaxValue)
+                size = Int32.MaxValue;
+            else
+                size = (int)usize;
+            byte[] data = new byte[size];
+            Marshal.Copy(buf, data, 0, (int)size);
+            ret = dbenv.api2_internal.backupObj.Write(data, offset, (int)size);
+            if (ret == 0 && usize > Int32.MaxValue) {
+                size = (int)(usize - Int32.MaxValue);
+                /* 
+                 * There's no need to re-allocate data, it's already as large as
+                 * we could possibly need it to be.  Advance buf beyond what was
+                 * just copied and write the remaining data.
+                 */
+                buf = new IntPtr(buf.ToInt64() + Int32.MaxValue);
+                Marshal.Copy(buf, data, 0, (int)size);
+                ret = dbenv.api2_internal.backupObj.Write(data, offset, (int)size);
+            }
+            return ret;
+        }
         private static void doNotify(IntPtr env, uint eventcode, byte[] event_info) {
             DB_ENV dbenv = new DB_ENV(env, false);
             
@@ -57,6 +97,21 @@ namespace BerkeleyDB {
             DbThreadID id = new DbThreadID(pid, tid);
             bool procOnly = (flags == DbConstants.DB_MUTEX_PROCESS_ONLY);
             return dbenv.api2_internal.isAliveHandler(id, procOnly) ? 1 : 0;
+        }
+        private static void doMessageDispatch(IntPtr env, IntPtr channel,
+            IntPtr requestp, uint nrequest, uint cb_flags) {
+            DB_ENV dbenv = new DB_ENV(env, false);
+            DbChannel dbchannel = new DbChannel(new DB_CHANNEL(channel, false));
+            bool need_response = 
+                (cb_flags == DbConstants.DB_REPMGR_NEED_RESPONSE);
+            IntPtr[] reqp = new IntPtr[nrequest];
+            Marshal.Copy(requestp, reqp, 0, (int)nrequest);
+            DatabaseEntry[] requests = new DatabaseEntry[nrequest];
+            for (int i = 0; i < nrequest; i++) {
+                requests[i] = DatabaseEntry.fromDBT(new DBT(reqp[i], false));
+            }
+            dbenv.api2_internal.messageDispatchHandler(
+                dbchannel, ref requests, out nrequest, need_response);
         }
         private static int doRepTransport(IntPtr envp,
             IntPtr controlp, IntPtr recp, IntPtr lsnp, int envid, uint flags) {
@@ -127,6 +182,8 @@ namespace BerkeleyDB {
             if (cfg.encryptionIsSet)
                 dbenv.set_encrypt(
                     cfg.EncryptionPassword, (uint)cfg.EncryptAlgorithm);
+            if (cfg.MetadataDir != null)
+                dbenv.set_metadata_dir(cfg.MetadataDir);
             if (cfg.ErrorFeedback != null)
                 ErrorFeedback = cfg.ErrorFeedback;
             ErrorPrefix = cfg.ErrorPrefix;
@@ -158,12 +215,22 @@ namespace BerkeleyDB {
                 Verbosity = cfg.Verbosity;
             if (cfg.flags != 0)
                 dbenv.set_flags(cfg.flags, 1);
+            if (cfg.initThreadCountIsSet)
+                InitThreadCount = cfg.InitThreadCount;
+            if (cfg.initTxnCountIsSet)
+                InitTxnCount = cfg.InitTxnCount;
 
             if (cfg.LockSystemCfg != null) {
                 if (cfg.LockSystemCfg.Conflicts != null)
                     LockConflictMatrix = cfg.LockSystemCfg.Conflicts;
                 if (cfg.LockSystemCfg.DeadlockResolution != null)
                     DeadlockResolution = cfg.LockSystemCfg.DeadlockResolution;
+                if (cfg.LockSystemCfg.initLockerCountIsSet)
+                    InitLockerCount = cfg.LockSystemCfg.InitLockerCount;
+                if (cfg.LockSystemCfg.initLockCountIsSet)
+                    InitLockCount = cfg.LockSystemCfg.InitLockCount;
+                if (cfg.LockSystemCfg.initLockObjectCountIsSet)
+                    InitLockObjectCount = cfg.LockSystemCfg.InitLockObjectCount;
                 if (cfg.LockSystemCfg.maxLockersIsSet)
                     MaxLockers = cfg.LockSystemCfg.MaxLockers;
                 if (cfg.LockSystemCfg.maxLocksIsSet)
@@ -172,6 +239,8 @@ namespace BerkeleyDB {
                     MaxObjects = cfg.LockSystemCfg.MaxObjects;
                 if (cfg.LockSystemCfg.partitionsIsSet)
                     LockPartitions = cfg.LockSystemCfg.Partitions;
+                if (cfg.LockSystemCfg.tablesizeIsSet)
+                    LockTableSize = cfg.LockSystemCfg.TableSize;
             }
 
             if (cfg.LogSystemCfg != null) {
@@ -179,6 +248,8 @@ namespace BerkeleyDB {
                     LogBufferSize = cfg.LogSystemCfg.BufferSize;
                 if (cfg.LogSystemCfg.Dir != null)
                     LogDir = cfg.LogSystemCfg.Dir;
+                if (cfg.LogSystemCfg.initLogIdCountIsSet)
+                    InitLogIdCount = cfg.LogSystemCfg.InitLogIdCount;
                 if (cfg.LogSystemCfg.modeIsSet)
                     LogFileMode = cfg.LogSystemCfg.FileMode;
                 if (cfg.LogSystemCfg.maxSizeIsSet)
@@ -214,7 +285,9 @@ namespace BerkeleyDB {
                  */
                 if (cfg.MutexSystemCfg.incrementIsSet)
                     MutexIncrement = cfg.MutexSystemCfg.Increment;
-                if (cfg.MutexSystemCfg.maxIsSet)
+                if (cfg.MutexSystemCfg.initMutexesIsSet)
+                    InitMutexes = cfg.MutexSystemCfg.InitMutexes;
+                if (cfg.MutexSystemCfg.maxMutexesIsSet)
                     MaxMutexes = cfg.MutexSystemCfg.MaxMutexes;
                 if (cfg.MutexSystemCfg.numTASIsSet)
                     NumTestAndSetSpins = cfg.MutexSystemCfg.NumTestAndSetSpins;
@@ -245,6 +318,8 @@ namespace BerkeleyDB {
                     RepHeartbeatMonitor = cfg.RepSystemCfg.HeartbeatMonitor;
                 if (cfg.RepSystemCfg.heartbeatSendIsSet)
                     RepHeartbeatSend = cfg.RepSystemCfg.HeartbeatSend;
+                if (cfg.RepSystemCfg.InMemory)
+                    dbenv.rep_set_config(DbConstants.DB_REP_CONF_INMEM, 1);
                 if (cfg.RepSystemCfg.leaseTimeoutIsSet)
                     RepLeaseTimeout = cfg.RepSystemCfg.LeaseTimeout;
                 if (!cfg.RepSystemCfg.AutoInit)
@@ -253,11 +328,8 @@ namespace BerkeleyDB {
                     RepNoBlocking = true;
                 if (cfg.RepSystemCfg.nsitesIsSet)
                     RepNSites = cfg.RepSystemCfg.NSites;
-                if (cfg.RepSystemCfg.remoteAddrs.Count > 0)
-                    foreach (ReplicationHostAddress addr
-                        in cfg.RepSystemCfg.remoteAddrs.Keys)
-                        RepMgrAddRemoteSite(addr,
-                            cfg.RepSystemCfg.remoteAddrs[addr]);
+                for (int i = 0; i < cfg.RepSystemCfg.RepmgrSitesConfig.Count; i++)
+                    RepMgrSiteConfig(cfg.RepSystemCfg.RepmgrSitesConfig[i]);
                 if (cfg.RepSystemCfg.priorityIsSet)
                     RepPriority = cfg.RepSystemCfg.Priority;
                 if (cfg.RepSystemCfg.RepMgrAckPolicy != null)
@@ -266,8 +338,6 @@ namespace BerkeleyDB {
                     RepSetRetransmissionRequest(
                         cfg.RepSystemCfg.RetransmissionRequestMin,
                         cfg.RepSystemCfg.RetransmissionRequestMax);
-                if (cfg.RepSystemCfg.RepMgrLocalSite != null)
-                    RepMgrLocalSite = cfg.RepSystemCfg.RepMgrLocalSite;
                 if (cfg.RepSystemCfg.Strict2Site)
                     RepStrict2Site = true;
                 if (cfg.RepSystemCfg.transmitLimitIsSet)
@@ -298,6 +368,114 @@ namespace BerkeleyDB {
                 dbenv.set_flags(DbConstants.DB_AUTO_COMMIT, value ? 1 : 0);
             }
         }
+        
+        /// <summary>
+        /// The size of the buffer, in bytes, to read from the database during a
+        /// hot backup.
+        /// </summary>
+        public uint BackupBufferSize {
+            get {
+                uint ret = 0;
+                dbenv.get_backup_config(DbConstants.DB_BACKUP_SIZE, ref ret);
+                return ret;
+            }
+            set {
+                dbenv.set_backup_config(DbConstants.DB_BACKUP_SIZE, value);
+            }
+        }
+        /// <summary>
+        /// Sets the <see cref="IBackup"/> interface to be used when performing
+        /// hot backups.
+        /// <para>
+        /// This interface is used to override the default behavior used by the 
+        /// <see cref="DatabaseEnvironment.Backup"/> and 
+        /// <see cref="DatabaseEnvironment.BackupDatabase"/> methods. 
+        /// </para>
+        /// </summary>
+        public IBackup BackupHandler {
+            get { return backupObj; }
+            set {
+                if (value == null) {
+                    dbenv.set_backup_callbacks(null, null, null);
+                } else if (backupObj == null) {
+                    if (doBackupCloseRef == null)
+                        doBackupCloseRef = 
+                            new BDB_BackupCloseDelegate(doBackupClose);
+                    if (doBackupOpenRef == null)
+                        doBackupOpenRef = 
+                            new BDB_BackupOpenDelegate(doBackupOpen);
+                    if (doBackupWriteRef == null)
+                        doBackupWriteRef = 
+                            new BDB_BackupWriteDelegate(doBackupWrite);
+                    dbenv.set_backup_callbacks(
+                        doBackupOpenRef, doBackupWriteRef, doBackupCloseRef);
+                }
+
+                backupObj = value;
+            }
+        }
+        /// <summary>
+        /// The number of pages to read before pausing during the hot backup.
+        /// <para>
+        /// Increasing this value increases the amount of I/O the backup process
+        /// performs for any given time interval. If your application is already
+        /// heavily I/O bound, setting this value to a lower number may help to 
+        /// improve your overall data throughput by reducing the I/O demands
+        /// placed on your system. By default, all pages are read without a 
+        /// pause.
+        /// </para>
+        /// </summary>
+        public uint BackupReadCount {
+            get {
+                uint ret = 0;
+                dbenv.get_backup_config(DbConstants.DB_BACKUP_READ_COUNT, ref ret);
+                return ret;
+            }
+            set {
+                dbenv.set_backup_config(DbConstants.DB_BACKUP_READ_COUNT, value);
+            }
+        }
+        /// <summary>
+        /// The number of microseconds to sleep between batches of reads during
+        /// a hot backup.
+        /// <para>
+        /// Increasing this value decreases the amount of I/O the backup process
+        /// performs for any given time interval. If your application is already
+        /// heavily I/O bound, setting this value to a higher number may help to
+        /// improve your overall data throughput by reducing the I/O demands 
+        /// placed on your system. 
+        /// </para>
+        /// </summary>
+        public uint BackupReadSleepDuration {
+            get {
+                uint ret = 0;
+                dbenv.get_backup_config(DbConstants.DB_BACKUP_READ_SLEEP, ref ret);
+                return ret;
+            }
+            set {
+                dbenv.set_backup_config(DbConstants.DB_BACKUP_READ_SLEEP, value);
+            }
+        }
+        /// <summary>
+        /// If true, direct I/O is used when writing pages to the disk during a 
+        /// hot backup.
+        /// <para>
+        /// For some environments, direct I/O can provide faster write 
+        /// throughput, but usually it is slower because the OS buffer pool 
+        /// offers asynchronous activity. 
+        /// </para>
+        /// </summary>
+        public bool BackupWriteDirect {
+            get {
+                uint ret = 0;
+                dbenv.get_backup_config(DbConstants.DB_BACKUP_WRITE_DIRECT, ref ret);
+                return ret != 0;
+            }
+            set {
+                dbenv.set_backup_config(DbConstants.DB_BACKUP_WRITE_DIRECT, (uint)(value ? 1 : 0));
+            }
+        }
+        
         /// <summary>
         /// The size of the shared memory buffer pool -- that is, the cache.
         /// </summary>
@@ -541,6 +719,9 @@ namespace BerkeleyDB {
                 return dir;
             }
         }
+        /// <summary>
+        /// Whether there is any hot backup in progress.
+        /// </summary>
         public bool HotbackupInProgress {
             get {
                 uint flags = 0;
@@ -550,6 +731,100 @@ namespace BerkeleyDB {
             set {
                 dbenv.set_flags(
                     DbConstants.DB_HOTBACKUP_IN_PROGRESS, value ? 1 : 0);
+            }
+        }
+        /// <summary>
+        /// The number of locks allocated when the environment is created
+        /// </summary>
+        public uint InitLockCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCK, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_LOCK, value);
+            }
+        }
+        /// <summary>
+        /// The number of lock objects allocated when the environment is created
+        /// </summary>
+        public uint InitLockObjectCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCKOBJECT, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_LOCKOBJECT, value);
+            }
+        }
+        /// <summary>
+        /// The number of lockers allocated when the environment is created
+        /// </summary>
+        public uint InitLockerCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOCKER, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_LOCKER, value);
+            }
+        }
+        /// <summary>
+        /// The number of log identifier objects allocated when the
+        /// environment is created
+        /// </summary>
+        public uint InitLogIdCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_LOGID, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_LOGID, value);
+            }
+        }
+        /// <summary>
+        /// The number of thread objects allocated when the environment is
+        /// created
+        /// </summary>
+        public uint InitThreadCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_THREAD, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_THREAD, value);
+            }
+        }
+        /// <summary>
+        /// The number of transaction objects allocated when the environment is
+        /// created
+        /// </summary>
+        public uint InitTxnCount {
+            get {
+                uint ret = 0;
+                dbenv.get_memory_init(DbConstants.DB_MEM_TRANSACTION, ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_memory_init(DbConstants.DB_MEM_TRANSACTION, value);
+            }
+        }
+        /// <summary>
+        /// The initial number of mutexes allocated
+        /// </summary>
+        public uint InitMutexes {
+            get {
+                uint ret = 0;
+                dbenv.mutex_get_init(ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.mutex_set_init(value);
             }
         }
         /// <summary>
@@ -620,6 +895,19 @@ namespace BerkeleyDB {
                 uint flags = 0;
                 dbenv.get_open_flags(ref flags);
                 return (flags & DbConstants.DB_LOCKDOWN) != 0;
+            }
+        }
+        /// <summary>
+        /// The size of the lock table in the Berkeley DB environment.
+        /// </summary>
+        public uint LockTableSize {
+            get {
+                uint ret = 0;
+                dbenv.get_lk_tablesize(ref ret);
+                return ret;
+            }
+            private set {
+                dbenv.set_lk_tablesize(value);
             }
         }
         /// <summary>
@@ -970,6 +1258,27 @@ namespace BerkeleyDB {
             }
         }
         /// <summary>
+        /// The path of directory to store the persistent metadata.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// By default, metadata is stored in the environment home directory.
+        /// See Berkeley DB File Naming in the Programmer's Reference Guide for
+        /// more information.
+        /// </para>
+        /// <para>
+        /// When used in a replicated application, the metadata directory must
+        /// be the same location for all sites within a replication group.
+        /// </para> 
+        /// </remarks>
+        public string MetadataDir {
+            get {
+                string mddir;
+                dbenv.get_metadata_dir(out mddir);
+                return mddir;
+            }
+        }
+        /// <summary>
         /// The maximum file size, in bytes, for a file to be mapped into the
         /// process address space. If no value is specified, it defaults to
         /// 10MB. 
@@ -1129,6 +1438,54 @@ namespace BerkeleyDB {
                 dbenv.get_open_flags(ref flags);
                 return (flags & DbConstants.DB_PRIVATE) != 0;
             }
+        }
+        /// <summary>
+        /// The gigabytes component of the byte-count limit on the amount of
+        /// memory to be used by shared structures in the main environment
+        /// region. These are the structures other than mutexes and the page
+        /// cache (memory pool).
+        /// </summary>
+        /// <returns>The maximum number of gigabytes used by the main region.
+        /// </returns>
+        public uint RegionMemoryLimitGBytes {
+            get {
+                uint gb = 0;
+                uint b = 0;
+                dbenv.get_memory_max(ref gb, ref b);
+                return gb;
+            }
+        }
+        /// <summary>
+        /// The bytes component of the byte-count limit on the amount of
+        /// memory to be used by shared structures in the main environment
+        /// region. These are the structures other than mutexes and the page
+        /// cache (memory pool).
+        /// </summary>
+        /// <returns>The maximum number of bytes used by the main region.
+        /// </returns>
+        public uint RegionMemoryLimitBytes {
+            get {
+                uint gb = 0;
+                uint b = 0;
+                dbenv.get_memory_max(ref gb, ref b);
+                return b;
+            }
+        }
+        /// <summary>
+        /// The amount of memory to be used by shared structures in the main
+        /// environment region. These are structures other than mutexes and
+        /// the page cache (memory pool).
+        /// </summary>
+        /// <param name="GBytes">
+        /// The number of gigabytes to allocate for the main memory region.
+        /// The gigabytes allocated will be added to the bytes input.
+        /// </param>
+        /// <param name="Bytes">
+        /// The number of gigabytes to allocate for the main memory region.
+        /// The bytes allocated will be added to the gigabytes input.
+        /// </param>
+        public void RegionSetMemoryLimit(uint GBytes, uint Bytes) {
+            dbenv.set_memory_max(GBytes, Bytes);
         }
         /// <summary>
         /// If true, Berkeley DB will have checked to see if recovery needed to
@@ -1333,6 +1690,15 @@ namespace BerkeleyDB {
             }
         }
         /// <summary>
+        /// If true, replication only stores the internal information in-memory
+        /// and cannot keep persistent state across a site crash or reboot. By
+        /// default, it is false and replication creates files in the
+        /// environment home directory to preserve the internal information.
+        /// </summary>
+        public bool RepInMemory {
+            get { return getRepConfig(DbConstants.DB_REP_CONF_INMEM); }
+        }
+        /// <summary>
         /// The amount of time a client grants its master lease to a master.
         /// When using master leases all sites in a replication group must use
         /// the same lease timeout value. There is no default value. If leases
@@ -1343,6 +1709,33 @@ namespace BerkeleyDB {
             get { return getRepTimeout(DbConstants.DB_REP_LEASE_TIMEOUT); }
             set { 
                 dbenv.rep_set_timeout(DbConstants.DB_REP_LEASE_TIMEOUT, value);
+            }
+        }
+        /// <summary>
+        /// Set the message dispatch function. It is responsible for receiving
+        /// messages sent from remote sites using either 
+        /// <see cref="DbChannel.SendMessage"/> or <see cref="DbChannel.SendRequest"/>.
+        /// If the message received by this function was sent using 
+        /// <see cref="DbChannel.SendMessage"/>, then no response is required.
+        /// If the message was sent using <see cref="DbChannel.SendRequest"/>,
+        /// then this function must send a response using 
+        /// <see cref="DbChannel.SendMessage"/>.
+        /// </summary>
+        /// <remarks>
+        /// It should be called before the Replication Manager has been started. 
+        /// </remarks>
+        public MessageDispatchDelegate RepMessageDispatch {
+            get { return messageDispatchHandler; }
+            set {
+                if (value == null)
+                    dbenv.repmgr_msg_dispatch(null, 0);
+                else if (messageDispatchHandler == null) {
+                    if (doMessageDispatchRef == null)
+                        doMessageDispatchRef = new BDB_MessageDispatchDelegate(
+                            doMessageDispatch);
+                    dbenv.repmgr_msg_dispatch(doMessageDispatchRef, 0);
+                }
+                messageDispatchHandler = value;
             }
         }
         /// <summary>
@@ -1361,6 +1754,18 @@ namespace BerkeleyDB {
             set { dbenv.repmgr_set_ack_policy(value.Policy); }
         }
         /// <summary>
+        /// Create DbChannel with given eid.
+        /// </summary>
+        /// <param name="eid">
+        /// Environment id. If the eid is <see cref="EnvironmentID.EID_MASTER"/>,
+        /// create channel sending to master site only.
+        /// </param>
+        public DbChannel RepMgrChannel(int eid) {
+            DB_CHANNEL dbChannel;
+            dbChannel = dbenv.repmgr_channel(eid, 0);
+            return new DbChannel(dbChannel);
+        }
+        /// <summary>
         /// If true, Replication Manager automatically runs elections to
         /// choose a new master when the old master appears to
         /// have become disconnected (defaults to true).
@@ -1373,22 +1778,20 @@ namespace BerkeleyDB {
             }
         }
         /// <summary>
-        /// The host information for the local system.  Returns null if the
+        /// The local site of the replication manager. Returns null if the
         /// local site has not been configured.
         /// </summary>
-        public ReplicationHostAddress RepMgrLocalSite {
+        public DbSite RepMgrLocalSite {
             get {
-                string host = null;
-                uint port = 0;
+                DB_SITE site;
                 try {
-                    dbenv.repmgr_get_local_site(out host, ref port);
-                } catch (DatabaseException) {
+                    site = dbenv.repmgr_local_site();
+                } catch (NotFoundException) {
                     // Local site wasn't set.
                     return null;
                 }
-                return new ReplicationHostAddress(host, port);
+                return new DbSite(site);
             }
-            set { dbenv.repmgr_set_local_site(value.Host, value.Port, 0); }
         }
         /// <summary>
         /// The status of the sites currently known by the replication manager. 
@@ -2159,6 +2562,94 @@ namespace BerkeleyDB {
         }
 
         /// <summary>
+        /// Perform a hot back up of the open environment.
+        /// <para>
+        /// All files used by the environment are backed up, so long as the 
+        /// normal rules for file placement are followed. For information on how
+        /// files are normally placed relative to the environment directory, see
+        /// the "Berkeley DB File Naming" section in the Berkeley DB Reference 
+        /// Guide.
+        /// </para>
+        /// <para>
+        /// By default, data directories and the log directory specified 
+        /// relative to the home directory will be recreated relative to the 
+        /// target directory. If absolute path names are used, then use the 
+        /// <see cref="BackupOptions.SingleDir"/> method.
+        /// </para>
+        /// <para>
+        /// This method provides the same functionality as the db_hotbackup
+        /// utility.  However, this method does not perform the housekeeping
+        /// actions performed by that utility. In particular, you may want to
+        /// run a checkpoint before calling this method. To run a checkpoint, 
+        /// use the <see cref="DatabaseEnvironment.Checkpoint"/> method. For 
+        /// more information on checkpoints, see the "Checkpoint" section in the
+        /// Berkeley DB Reference Guide.
+        /// </para>
+        /// <para>
+        /// To back up a single database file within the environment, use the
+        /// <see cref="DatabaseEnvironment.BackupDatabase"/> method.
+        /// </para>
+        /// <para>
+        /// In addition to the configuration options available using the 
+        /// <see cref="BackupOptions"/> class, additional tuning modifications 
+        /// can be made using the <see cref="DatabaseEnvironment.BackupReadCount"/>,
+        /// <see cref="DatabaseEnvironment.BackupReadSleepDuration"/>,
+        /// <see cref="DatabaseEnvironment.BackupBufferSize"/>, and
+        /// <see cref="DatabaseEnvironment.BackupWriteDirect"/> properties. 
+        /// Alternatively, you can write your own custom hot back up facility 
+        /// using the <see cref="IBackup"/> interface.
+        /// </para>
+        /// </summary>
+        /// <param name="target">Identifies the directory in which the back up 
+        /// will be placed. Any subdirectories required to contain the back up
+        /// must be placed relative to this directory. Note that if an 
+        /// <see cref="IBackup"/> is configured for the environment, then the
+        /// value specified to this parameter is passed on to the 
+        /// <see cref="IBackup.Open"/> method.  If this parameter is null, then
+        /// the target must be specified to the <see cref="IBackup.Open"/>
+        /// method.
+        /// <para>
+        /// This directory, and any required subdirectories, will be created for
+        /// you if you specify <see cref="CreatePolicy.IF_NEEDED"/> or 
+        /// <see cref="CreatePolicy.ALWAYS"/> for the 
+        /// <see cref="BackupOptions.Creation"/> property.
+        /// </para>
+        /// </param>
+        /// <param name="opt">The <see cref="BackupOptions"/> instance used to
+        /// configure the hot back up.</param>
+        public void Backup(string target, BackupOptions opt) {
+            dbenv.backup(target, opt.flags);
+        }
+        /// <summary>
+        /// Perform a hot back up of a single database file contained within the
+        /// environment.
+        /// <para>
+        /// To back up the entire environment, use the 
+        /// <see cref="DatabaseEnvironment.Backup"/> method.
+        /// </para>
+        /// <para>
+        /// You can make some tuning modifications to the backup process using
+        /// the <see cref="DatabaseEnvironment.BackupReadCount"/>,
+        /// <see cref="DatabaseEnvironment.BackupReadSleepDuration"/>,
+        /// <see cref="DatabaseEnvironment.BackupBufferSize"/>, and
+        /// <see cref="DatabaseEnvironment.BackupWriteDirect"/> properties. 
+        /// Alternatively, you can write your own custom hot back up facility 
+        /// using the <see cref="IBackup"/> interface.
+        /// </para>
+        /// </summary>
+        /// <param name="target">Identifies the directory in which the back up 
+        /// will be placed.</param>
+        /// <param name="database">The database file that you want to back up.
+        /// </param>
+        /// <param name="must_create">If true, then if the target file exists, 
+        /// this method throws an exception.</param>
+        public void BackupDatabase(
+            string target, string database, bool must_create) {
+            dbenv.dbbackup(
+                database, target, must_create ? DbConstants.DB_EXCL : 0);
+        }
+        
+        /// <summary>
         /// Hold an election for the master of a replication group.
         /// </summary>
         public void RepHoldElection() {
@@ -2171,9 +2662,7 @@ namespace BerkeleyDB {
         /// The number of replication sites expected to participate in the
         /// election. Once the current site has election information from that
         /// many sites, it will short-circuit the election and immediately cast
-        /// its vote for a new master. This parameter must be no less than
-        /// <paramref name="nvotes"/>, or 0 if the election should use
-        /// <see cref="RepNSites"/>. If an application is using master leases,
+        /// its vote for a new master. If an application is using master leases,
         /// then the value must be 0 and <see cref="RepNSites"/> must be used.
         /// </param>
         public void RepHoldElection(uint nsites) {
@@ -2232,39 +2721,55 @@ namespace BerkeleyDB {
         }
 
         /// <summary>
-        /// Add a new replication site to the replication manager's list of
-        /// known sites. It is not necessary for all sites in a replication
-        /// group to know about all other sites in the group. 
+        /// Configure a site in the replication manager.
         /// </summary>
-        /// <param name="Host">The remote site's address</param>
-        /// <returns>The environment ID assigned to the remote site</returns>
-        public int RepMgrAddRemoteSite(ReplicationHostAddress Host) {
-            return RepMgrAddRemoteSite(Host, false);
+        /// <param name="siteConfig">The configuration of a site</param>
+        public void RepMgrSiteConfig(DbSiteConfig siteConfig) {
+            DB_SITE dbSite;
+            dbSite = dbenv.repmgr_site(siteConfig.Host, siteConfig.Port);
+            if (siteConfig.helperIsSet)
+                dbSite.set_config(DbConstants.DB_BOOTSTRAP_HELPER,
+                    Convert.ToUInt32(siteConfig.Helper));
+            if (siteConfig.groupCreatorIsSet)
+                dbSite.set_config(DbConstants.DB_GROUP_CREATOR,
+                    Convert.ToUInt32(siteConfig.GroupCreator));
+            if (siteConfig.legacyIsSet)
+                dbSite.set_config(DbConstants.DB_LEGACY,
+                    Convert.ToUInt32(siteConfig.Legacy));
+            if (siteConfig.localSiteIsSet)
+                dbSite.set_config(DbConstants.DB_LOCAL_SITE,
+                    Convert.ToUInt32(siteConfig.LocalSite));
+            if (siteConfig.peerIsSet)
+                dbSite.set_config(DbConstants.DB_REPMGR_PEER,
+                    Convert.ToUInt32(siteConfig.Peer));
+            dbSite.close();
         }
 
         /// <summary>
-        /// Add a new replication site to the replication manager's list of
-        /// known sites. It is not necessary for all sites in a replication
-        /// group to know about all other sites in the group. 
+        /// Create DbSite with the given eid. 
         /// </summary>
         /// <remarks>
-        /// Currently, the replication manager framework only supports a single
-        /// client peer, and the last specified peer is used.
+        /// It is only possible to use this method after env open, because EID
+        /// values are not established before that time.
         /// </remarks>
-        /// <param name="Host">The remote site's address</param>
-        /// <param name="isPeer">
-        /// If true, configure client-to-client synchronization with the
-        /// specified remote site.
-        /// </param>
-        /// <returns>The environment ID assigned to the remote site</returns>
-        public int RepMgrAddRemoteSite(
-            ReplicationHostAddress Host, bool isPeer) {
-            int eidp = 0;
-            dbenv.repmgr_add_remote_site(Host.Host,
-                Host.Port, ref eidp, isPeer ? DbConstants.DB_REPMGR_PEER : 0);
-            return eidp;
+        /// <param name="eid">The environment id</param>
+        public DbSite RepMgrSite(int eid) {
+            DB_SITE dbSite;
+            dbSite = dbenv.repmgr_site_by_eid(eid);
+            return new DbSite(dbSite);
         }
-        
+
+        /// <summary>
+        /// Create DbSite with the given host and port. 
+        /// </summary>
+        /// <param name="host">The host address</param>
+        /// <param name="port">The port</param>
+        public DbSite RepMgrSite(string host, uint port) {
+            DB_SITE dbSite;
+            dbSite = dbenv.repmgr_site(host, port);
+            return new DbSite(dbSite);
+        }
+
         /// <summary>
         /// Start the replication manager as a client site, and do not call for
         /// an election.
@@ -2285,7 +2790,7 @@ namespace BerkeleyDB {
         /// <see cref="RepMgrLocalSite"/>.
         /// </item>
         /// <item>
-        /// Call <see cref="RepMgrAddRemoteSite"/> to configure the remote
+        /// Call <see cref="RepMgrSiteConfig"/> to configure the remote
         /// site(s) in the replication group.
         /// </item>
         /// <item>Configure the message acknowledgment policy
@@ -2375,7 +2880,7 @@ namespace BerkeleyDB {
         /// <see cref="RepMgrLocalSite"/>.
         /// </item>
         /// <item>
-        /// Call <see cref="RepMgrAddRemoteSite"/> to configure the remote
+        /// Call <see cref="RepMgrSiteConfig"/> to configure the remote
         /// site(s) in the replication group.
         /// </item>
         /// <item>Configure the message acknowledgment policy
@@ -3132,7 +3637,7 @@ namespace BerkeleyDB {
         /// in previous calls to Recover.
         /// </param>
         /// <returns>A list of the prepared transactions</returns>
-        public PreparedTransaction[] Recover(uint count, bool resume) {
+        public PreparedTransaction[] Recover(int count, bool resume) {
             uint flags = 0;
             flags |= resume ? DbConstants.DB_NEXT : DbConstants.DB_FIRST;
             

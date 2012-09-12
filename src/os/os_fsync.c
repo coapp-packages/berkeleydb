@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1997, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1997, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -73,7 +73,8 @@ __os_fsync(env, fhp)
 		return (0);
 
 	if (dbenv != NULL && FLD_ISSET(dbenv->verbose, DB_VERB_FILEOPS_ALL))
-		__db_msg(env, "fileops: flush %s", fhp->name);
+		__db_msg(env, DB_STR_A("0150", "fileops: flush %s", "%s"),
+		    fhp->name);
 
 	if (DB_GLOBAL(j_fsync) != NULL)
 		ret = DB_GLOBAL(j_fsync)(fhp->fd);
@@ -96,7 +97,7 @@ __os_fsync(env, fhp)
 	}
 
 	if (ret != 0) {
-		__db_syserr(env, ret, "fsync");
+		__db_syserr(env, ret, DB_STR("0151", "fsync"));
 		ret = __os_posix_err(ret);
 	}
 	return (ret);

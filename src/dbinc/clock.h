@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -54,7 +54,11 @@ extern "C" {
  */
 typedef struct {
 	time_t	tv_sec;				/* seconds */
+#ifdef HAVE_MIXED_SIZE_ADDRESSING
+	int32_t tv_nsec;
+#else
 	long	tv_nsec;			/* nanoseconds */
+#endif
 } db_timespec;
 
 /* Operations on timespecs */

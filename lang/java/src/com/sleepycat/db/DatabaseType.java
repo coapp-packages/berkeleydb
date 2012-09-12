@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2002, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2002, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -25,6 +25,13 @@ public final class DatabaseType {
     */
     public static final DatabaseType HASH =
         new DatabaseType("HASH", DbConstants.DB_HASH);
+
+    /**
+    The database is a Heap.  The Heap format is designed for efficient
+    use of disk space.
+    */
+    public static final DatabaseType HEAP =
+        new DatabaseType("HEAP", DbConstants.DB_HEAP);
 
     /**
     The database is a Queue.  The Queue format supports fast access to
@@ -55,6 +62,8 @@ public final class DatabaseType {
             return BTREE;
         case DbConstants.DB_HASH:
             return HASH;
+        case DbConstants.DB_HEAP:
+            return HEAP;
         case DbConstants.DB_QUEUE:
             return QUEUE;
         case DbConstants.DB_RECNO:

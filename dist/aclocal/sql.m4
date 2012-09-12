@@ -9,6 +9,20 @@ else
 	db_cv_sql_config_tclconfig=	
 fi
 
+# Whitespace in path names causes libtool to generate an invalid
+# dependency_libs line in sql/libsqlite3.la.
+# Work around this on cygwin, which commonly has spaces in path names.
+case `pwd` in
+  *\ * | *\	*)
+    if cygpath -d "$PWD" > /dev/null 2>&1 ; then
+	cd `cygpath -d "$PWD"`
+	AC_MSG_WARN([Changing current directory to $PWD to hide whitespace from libtool])
+    else
+	AC_MSG_WARN([Current bugs in libtool may prevent building the SQL API in \"$PWD\"; please use another working directory])
+    fi
+    ;;
+esac
+
 # It would be nice to use AC_CONFIG_SUBDIRS here, but it does not allow for
 # tweaking of command line options, so hard code things instead.
 #
@@ -76,8 +90,8 @@ fi
 
 # !!! END COPIED from autoconf distribution
 
-sqlite_dir=`cd $srcdir/../lang/sql/sqlite && /bin/pwd`
-(cd sql && eval "\$SHELL $sqlite_dir/configure --disable-option-checking $ac_sub_configure_args CPPFLAGS=\"-I.. $CPPFLAGS\" --enable-amalgamation=$db_cv_sql_amalgamation --enable-readline=$with_readline" && cat build_config.h >> config.h)
+sqlite_dir=$srcdir/../lang/sql/sqlite
+(cd sql && eval "\$SHELL ../$sqlite_dir/configure --disable-option-checking $ac_sub_configure_args CPPFLAGS=\"-I.. $CPPFLAGS\" --enable-amalgamation=$db_cv_sql_amalgamation --enable-readline=$with_readline" && cat build_config.h >> config.h) || exit 1
 
 # Configure JDBC if --enable-jdbc
 if test "$db_cv_jdbc" != "no"; then
@@ -107,6 +121,7 @@ if test "$db_cv_jdbc" != "no"; then
   test "$prefix" != "" && jdbc_args="--prefix=$prefix --with-jardir=$prefix/jar"
   test "$enable_shared" != "" && jdbc_args="$jdbc_args --enable-shared=$enable_shared"
   test "$enable_static" != "" && jdbc_args="$jdbc_args --enable-static=$enable_static"
+  test "$cross_compiling" = "yes" && jdbc_args="$jdbc_args --build=$build --host=$host "
 
   # 1. The build directory is build_unix/jdbc, so the include paths are relative
   #    to that.
