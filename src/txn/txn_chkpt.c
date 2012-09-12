@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1995, 1996
@@ -97,7 +97,7 @@ __txn_checkpoint(env, kbytes, minutes, flags)
 	u_int32_t kbytes, minutes, flags;
 {
 	DB_LOG *dblp;
-	DB_LSN ckp_lsn, last_ckp;
+	DB_LSN ckp_lsn, last_ckp, msg_lsn;
 	DB_TXNMGR *mgr;
 	DB_TXNREGION *region;
 	LOG *lp;
@@ -119,8 +119,8 @@ __txn_checkpoint(env, kbytes, minutes, flags)
 	if (IS_REP_CLIENT(env)) {
 		if (MPOOL_ON(env) &&
 		    (ret = __memp_sync(env, DB_SYNC_CHECKPOINT, NULL)) != 0) {
-			__db_err(env, ret,
-		    "txn_checkpoint: failed to flush the buffer cache");
+			__db_err(env, ret, DB_STR("4518",
+		    "txn_checkpoint: failed to flush the buffer cache"));
 			return (ret);
 		}
 		return (0);
@@ -143,9 +143,13 @@ __txn_checkpoint(env, kbytes, minutes, flags)
 	 * it are complete.  Our first guess (corrected below based on the list
 	 * of active transactions) is the last-written LSN.
 	 */
-	if ((ret = __log_current_lsn(env, &ckp_lsn, &mbytes, &bytes)) != 0)
+	if ((ret = __log_current_lsn_int(env, &ckp_lsn, &mbytes, &bytes)) != 0)
 		goto err;
 
+	/*
+	 * Save for possible use in START_SYNC message.
+	 */
+	msg_lsn = ckp_lsn;
 	if (!LF_ISSET(DB_FORCE)) {
 		/* Don't checkpoint a quiescent database. */
 		if (bytes == 0 && mbytes == 0)
@@ -213,30 +217,33 @@ do_ckp:
 	if (LOGGING_ON(env) && IS_REP_MASTER(env)) {
 #ifdef HAVE_REPLICATION_THREADS
 		/*
-		 * If repmgr is configured in the shared environment (which we
-		 * know if we have a local host address), but no send() function
-		 * configured for this process, assume we have a
+		 * If repmgr is configured in the shared environment, but no
+		 * send() function configured for this process, assume we have a
 		 * replication-unaware process that wants to automatically
 		 * participate in replication (i.e., sending replication
 		 * messages to clients).
 		 */
 		if (env->rep_handle->send == NULL &&
-		    F_ISSET(env, ENV_THREAD) &&
-		    env->rep_handle->region->my_addr.host != INVALID_ROFF &&
+		    F_ISSET(env, ENV_THREAD) && APP_IS_REPMGR(env) &&
 		    (ret = __repmgr_autostart(env)) != 0)
 			goto err;
 #endif
+		/*
+		 * Send the LSN (saved in msg_lsn) where the sync starts
+		 * on the master.  Clients must have this LSN to assure that
+		 * they have applied all txns up to this point.
+		 */
 		if (env->rep_handle->send != NULL)
 			(void)__rep_send_message(env, DB_EID_BROADCAST,
-			    REP_START_SYNC, &ckp_lsn, NULL, 0, 0);
+			    REP_START_SYNC, &msg_lsn, NULL, 0, 0);
 	}
 
 	/* Flush the cache. */
 	if (MPOOL_ON(env) &&
 	    (ret = __memp_sync_int(
 		env, NULL, 0, DB_SYNC_CHECKPOINT, NULL, NULL)) != 0) {
-		__db_err(env, ret,
-		    "txn_checkpoint: failed to flush the buffer cache");
+		__db_err(env, ret, DB_STR("4519",
+		    "txn_checkpoint: failed to flush the buffer cache"));
 		goto err;
 	}
 
@@ -293,8 +300,9 @@ do_ckp:
 		if ((ret = __dbreg_log_files(env, op)) != 0 ||
 		    (ret = __txn_ckp_log(env, NULL, &ckp_lsn, logflags,
 		    &ckp_lsn, &last_ckp, (int32_t)time(NULL), id, 0)) != 0) {
-			__db_err(env, ret,
+			__db_err(env, ret, DB_STR_A("4520",
 			    "txn_checkpoint: log failed at LSN [%ld %ld]",
+			    "%ld %ld"),
 			    (long)ckp_lsn.file, (long)ckp_lsn.offset);
 			goto err;
 		}
@@ -319,7 +327,7 @@ err:	MUTEX_UNLOCK(env, region->mtx_ckp);
  *	 We check both the file and offset for 0 since the lsn may be in
  *	 transition.  If it is then we don't care about this txn because it
  *	 must be starting after we set the initial value of lsnp in the caller.
- *	 All txns must initalize their begin_lsn before writing to the log.
+ *	 All txns must initialize their begin_lsn before writing to the log.
  *
  * PUBLIC: int __txn_getactive __P((ENV *, DB_LSN *));
  */

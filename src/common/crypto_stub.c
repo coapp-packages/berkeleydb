@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -38,7 +38,7 @@ __crypto_region_init(env)
 	if (ret == 0)
 		return (0);
 
-	__db_errx(env,
-"Encrypted environment: library build did not include cryptography support");
+	__db_errx(env, DB_STR("0040",
+"Encrypted environment: library build did not include cryptography support"));
 	return (DB_OPNOTSUP);
 }

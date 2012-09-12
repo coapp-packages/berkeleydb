@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993
@@ -174,7 +174,8 @@ __db_dbm_store(key, dat)
 static void
 __db_no_open()
 {
-	(void)fprintf(stderr, "dbm: no open database.\n");
+	(void)fprintf(stderr, DB_STR_A("5126",
+	    "dbm: no open database.\n", "\n"));
 }
 
 /*

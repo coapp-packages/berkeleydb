@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -29,10 +29,12 @@ extern "C" {
 
 /* Complain about a totally zeroed page where we don't expect one. */
 #define	ZEROPG_ERR_PRINT(dbenv, pgno, str) do {				\
-	EPRINT(((dbenv), "Page %lu: %s is of inappropriate type %lu",	\
+	EPRINT(((dbenv), DB_STR_A("0501", 				\
+	    "Page %lu: %s is of inappropriate type %lu", "%lu %s %lu"),	\
 	    (u_long)(pgno), str, (u_long)P_INVALID));			\
-	EPRINT(((dbenv), "Page %lu: totally zeroed page",		\
-	    (u_long)(pgno)));						\
+	EPRINT(((dbenv), DB_STR_A("0502",				\
+	    "Page %lu: totally zeroed page",				\
+	    "%lu"), (u_long)(pgno)));					\
 } while (0)
 
 /*
@@ -178,6 +180,7 @@ struct __vrfy_pageinfo {
 #define	VRFY_IS_RRECNO		0x1000
 #define	VRFY_OVFL_LEAFSEEN	0x2000
 #define	VRFY_HAS_COMPRESS	0x4000
+#define	VRFY_NONEXISTENT	0x8000
 	u_int32_t	flags;
 
 	LIST_ENTRY(__vrfy_pageinfo) links;

@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -147,6 +147,10 @@ set mpf [lindex $mpools 0]
 while { $i != $id } {
 	set p [$mpf get -create $i]
 	error_check_good mp_get [is_valid_page $p $mpf] TRUE
+
+	set p1 [$mpf get -dirty $i]
+	error_check_good mp_get_p1_dirty [is_valid_page $p1 $mpf] TRUE
+	error_check_good page_put:$p1 [$p1 put] 0
 
 	if { [$p is_setto MASTER$i] != 1 } {
 		puts "Warning: Master page $i not set."

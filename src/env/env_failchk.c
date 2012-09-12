@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -45,8 +45,8 @@ __env_failchk_pp(dbenv, flags)
 	 * have a default self function, but no is-alive function.
 	 */
 	if (!ALIVE_ON(env)) {
-		__db_errx(env,
-	"DB_ENV->failchk requires DB_ENV->is_alive be configured");
+		__db_errx(env, DB_STR("1503",
+	"DB_ENV->failchk requires DB_ENV->is_alive be configured"));
 		return (EINVAL);
 	}
 
@@ -90,6 +90,9 @@ __env_failchk_int(dbenv)
 	    (ret = __dbreg_failchk(env)) != 0))
 		goto err;
 
+	if ((ret = __memp_failchk(env)) != 0)
+		goto err;
+
 #ifdef HAVE_REPLICATION_THREADS
 	if (REP_ON(env) && (ret = __repmgr_failchk(env)) != 0)
 		goto err;
@@ -105,6 +108,87 @@ __env_failchk_int(dbenv)
 err:	F_CLR(dbenv, DB_ENV_FAILCHK);
 	return (ret);
 }
+
+/*
+ * __env_thread_size --
+ *	Initial amount of memory for thread info blocks.
+ * PUBLIC: size_t __env_thread_size __P((ENV *, size_t));
+ */
+size_t
+__env_thread_size(env, other_alloc)
+	ENV *env;
+	size_t other_alloc;
+{
+	DB_ENV *dbenv;
+	size_t size;
+	u_int32_t max;
+
+	dbenv = env->dbenv;
+	size = 0;
+
+	max = dbenv->thr_max;
+	if (dbenv->thr_init != 0) {
+		size =
+		    dbenv->thr_init * __env_alloc_size(sizeof(DB_THREAD_INFO));
+		if (max < dbenv->thr_init)
+			max = dbenv->thr_init;
+	} else if (max == 0 && ALIVE_ON(env)) {
+		if ((max = dbenv->tx_init) == 0) {
+			/*
+			 * They want thread tracking, but don't say how much.
+			 * Arbitrarily assume 1/10 of the remaining memory
+			 * or at least 100.  We just use this to size
+			 * the hash table.
+			 */
+			if (dbenv->memory_max != 0)
+				max = (u_int32_t)
+				    (((dbenv->memory_max - other_alloc) / 10) /
+					sizeof(DB_THREAD_INFO));
+			if (max < 100)
+				max = 100;
+		}
+	}
+	/*
+	 * Set the number of buckets to be 1/8th the number of
+	 * thread control blocks.  This is rather arbitrary.
+	 */
+	dbenv->thr_max = max;
+	if (max != 0)
+		size += __env_alloc_size(sizeof(DB_HASHTAB) *
+		    __db_tablesize(max / 8));
+	return (size);
+}
+
+/*
+ * __env_thread_max --
+ *	Return the amount of extra memory to hold thread information.
+ * PUBLIC: size_t __env_thread_max __P((ENV *));
+ */
+size_t
+__env_thread_max(env)
+	ENV *env;
+{
+	DB_ENV *dbenv;
+	size_t size;
+
+	dbenv = env->dbenv;
+
+	/*
+	 * Allocate space for thread info blocks.  Max is only advisory,
+	 * so we allocate 25% more.
+	 */
+	if (dbenv->thr_max > dbenv->thr_init) {
+		size = dbenv->thr_max - dbenv->thr_init;
+		size += size / 4;
+	} else {
+		dbenv->thr_max = dbenv->thr_init;
+		size = dbenv->thr_init / 4;
+	}
+
+	size = size * __env_alloc_size(sizeof(DB_THREAD_INFO));
+	return (size);
+}
+
 /*
  * __env_thread_init --
  *	Initialize the thread control block table.
@@ -131,31 +215,27 @@ __env_thread_init(env, during_creation)
 		if (dbenv->thr_max == 0) {
 			env->thr_hashtab = NULL;
 			if (ALIVE_ON(env)) {
-				__db_errx(env,
-		"is_alive method specified but no thread region allocated");
+				__db_errx(env, DB_STR("1504",
+		"is_alive method specified but no thread region allocated"));
 				return (EINVAL);
 			}
 			return (0);
 		}
 
 		if (!during_creation) {
-			__db_errx(env,
-    "thread table must be allocated when the database environment is created");
+			__db_errx(env, DB_STR("1505",
+"thread table must be allocated when the database environment is created"));
 			return (EINVAL);
 		}
 
 		if ((ret =
 		    __env_alloc(infop, sizeof(THREAD_INFO), &thread)) != 0) {
-			__db_err(env, ret,
-			     "unable to allocate a thread status block");
+			__db_err(env, ret, DB_STR("1506",
+			    "unable to allocate a thread status block"));
 			return (ret);
 		}
 		memset(thread, 0, sizeof(*thread));
 		renv->thread_off = R_OFFSET(infop, thread);
-		/*
-		 * Set the number of buckets to be 1/8th the number of
-		 * thread control blocks.  This is rather arbitrary.
-		 */
 		thread->thr_nbucket = __db_tablesize(dbenv->thr_max / 8);
 		if ((ret = __env_alloc(infop,
 		     thread->thr_nbucket * sizeof(DB_HASHTAB), &htab)) != 0)
@@ -163,6 +243,7 @@ __env_thread_init(env, during_creation)
 		thread->thr_hashoff = R_OFFSET(infop, htab);
 		__db_hashinit(htab, thread->thr_nbucket);
 		thread->thr_max = dbenv->thr_max;
+		thread->thr_init = dbenv->thr_init;
 	} else {
 		thread = R_ADDR(infop, renv->thread_off);
 		htab = R_ADDR(infop, thread->thr_hashoff);
@@ -171,6 +252,7 @@ __env_thread_init(env, during_creation)
 	env->thr_hashtab = htab;
 	env->thr_nbucket = thread->thr_nbucket;
 	dbenv->thr_max = thread->thr_max;
+	dbenv->thr_init = thread->thr_init;
 	return (0);
 }
 
@@ -259,9 +341,9 @@ __env_in_api(env)
 				ip->dbth_state = THREAD_SLOT_NOT_IN_USE;
 				continue;
 			}
-			return (__db_failed(env,
-			     "Thread died in Berkeley DB library",
-			     ip->dbth_pid, ip->dbth_tid));
+			return (__db_failed(env, DB_STR("1507",
+			    "Thread died in Berkeley DB library"),
+			    ip->dbth_pid, ip->dbth_tid));
 		}
 
 	if (unpin == 0)
@@ -349,7 +431,11 @@ __env_set_state(env, ipp, state)
 #else
 		if (memcmp(&id.pid, &ip->dbth_pid, sizeof(id.pid)) != 0)
 			continue;
+#ifdef HAVE_MUTEX_PTHREADS
+		if (pthread_equal(id.tid, ip->dbth_tid) == 0)
+#else
 		if (memcmp(&id.tid, &ip->dbth_tid, sizeof(id.tid)) != 0)
+#endif
 			continue;
 		break;
 #endif
@@ -362,7 +448,7 @@ __env_set_state(env, ipp, state)
 	if (state == THREAD_VERIFY) {
 		DB_ASSERT(env, ip != NULL && ip->dbth_state != THREAD_OUT);
 		if (ipp != NULL) {
-			if (ip == NULL) /* The control block wasnt found */
+			if (ip == NULL) /* The control block wasn't found */
 				return (EINVAL);
 			*ipp = ip;
 		}
@@ -417,6 +503,7 @@ __env_set_state(env, ipp, state)
 init:			ip->dbth_pid = id.pid;
 			ip->dbth_tid = id.tid;
 			ip->dbth_state = state;
+			SH_TAILQ_INIT(&ip->dbth_xatxn);
 		}
 		MUTEX_UNLOCK(env, renv->mtx_regenv);
 	} else
@@ -425,7 +512,8 @@ init:			ip->dbth_pid = id.pid;
 
 	DB_ASSERT(env, ret == 0);
 	if (ret != 0)
-		__db_errx(env, "Unable to allocate thread control block");
+		__db_errx(env, DB_STR("1508",
+		    "Unable to allocate thread control block"));
 	return (ret);
 }
 

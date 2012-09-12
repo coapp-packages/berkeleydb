@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -110,6 +110,7 @@ __memp_stat(env, gspp, fspp, flags)
 		sp->st_ncache = mp->nreg;
 		sp->st_max_ncache = mp->max_nreg;
 		sp->st_regsize = dbmp->reginfo[0].rp->size;
+		sp->st_regmax = dbmp->reginfo[0].rp->max;
 		sp->st_sync_interrupted = mp->stat.st_sync_interrupted;
 
 		MPOOL_SYSTEM_LOCK(env);
@@ -317,7 +318,7 @@ __memp_get_files(env, mfp, argp, countp, flags)
 	name = __memp_fns(dbmp, mfp);
 	nlen = strlen(name) + 1;
 	memcpy(tname, name, nlen);
-	*tstruct = mfp->stat;
+	memcpy(tstruct, &mfp->stat, sizeof(mfp->stat));
 	tstruct->file_name = tname;
 
 	/* Grab the pagesize from the mfp. */
@@ -353,7 +354,7 @@ __memp_stat_print_pp(dbenv, flags)
 	    env->mp_handle, "DB_ENV->memp_stat_print", DB_INIT_MPOOL);
 
 #define	DB_STAT_MEMP_FLAGS						\
-	(DB_STAT_ALL | DB_STAT_CLEAR | DB_STAT_MEMP_HASH)
+	(DB_STAT_ALL | DB_STAT_ALLOC | DB_STAT_CLEAR | DB_STAT_MEMP_HASH)
 	if ((ret = __db_fchk(env,
 	    "DB_ENV->memp_stat_print", flags, DB_STAT_MEMP_FLAGS)) != 0)
 		return (ret);
@@ -420,6 +421,8 @@ __memp_print_stats(env, flags)
 	__db_dl(env, "Maximum number of caches", (u_long)gsp->st_max_ncache);
 	__db_dlbytes(env, "Pool individual cache size",
 	    (u_long)0, (u_long)0, (u_long)gsp->st_regsize);
+	__db_dlbytes(env, "Pool individual cache max",
+	    (u_long)0, (u_long)0, (u_long)gsp->st_regmax);
 	__db_dlbytes(env, "Maximum memory-mapped file size",
 	    (u_long)0, (u_long)0, (u_long)gsp->st_mmapsize);
 	STAT_LONG("Maximum open file descriptors", gsp->st_maxopenfd);
@@ -518,6 +521,10 @@ __memp_print_stats(env, flags)
 		__db_dl(env,
 		    "Pages written from the cache to the backing file",
 		    (u_long)(*tfsp)->st_page_out);
+		if ((*tfsp)->st_backup_spins != 0)
+			__db_dl(env,
+			    "Spins while trying to backup the file",
+			    (u_long)(*tfsp)->st_backup_spins);
 	}
 
 	__os_ufree(env, fsp);
@@ -561,9 +568,6 @@ __memp_print_all(env, flags)
 	STAT_LSN("Maximum checkpoint LSN", &mp->lsn);
 	STAT_ULONG("Hash table entries", mp->htab_buckets);
 	STAT_ULONG("Hash table mutexes", mp->htab_mutexes);
-	STAT_ULONG("Hash table last-checked", mp->last_checked);
-	STAT_ULONG("Hash table LRU count", mp->lru_count);
-	STAT_ULONG("Put counter", mp->put_counter);
 
 	__db_msg(env, "%s", DB_GLOBAL(db_line));
 	__db_msg(env, "DB_MPOOL handle information:");
@@ -653,6 +657,7 @@ __memp_print_files(env, mfp, argp, countp, flags)
 	MUTEX_LOCK(env, mfp->mutex);
 	STAT_ULONG("Revision count", mfp->revision);
 	STAT_ULONG("Reference count", mfp->mpf_cnt);
+	STAT_ULONG("Sync/read only open count", mfp->neutral_cnt);
 	STAT_ULONG("Block count", mfp->block_cnt);
 	STAT_ULONG("Last page number", mfp->last_pgno);
 	STAT_ULONG("Original last page number", mfp->orig_last_pgno);
@@ -703,6 +708,10 @@ __memp_print_hash(env, dbmp, reginfo, fmap, flags)
 
 	c_mp = reginfo->primary;
 	DB_MSGBUF_INIT(&mb);
+	STAT_ULONG("Hash table last-checked", c_mp->last_checked);
+	STAT_ULONG("Hash table LRU priority", c_mp->lru_priority);
+	STAT_ULONG("Hash table LRU generation", c_mp->lru_generation);
+	STAT_ULONG("Put counter", c_mp->put_counter);
 
 	/* Display the hash table list of BH's. */
 	__db_msg(env,

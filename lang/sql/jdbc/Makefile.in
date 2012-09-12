@@ -2,6 +2,7 @@
 
 prefix =	@prefix@
 CC =		@CC@
+HOSTCC =	@HOSTCC@
 LIBTOOL =	./libtool
 SQLITE_INC =	@SQLITE_INC@
 SQLITE_LIB =	@SQLITE_LIB@
@@ -11,7 +12,9 @@ SQLITE3_A10N_C =	@SQLITE3_A10N_C@
 SQLITE3_A10N_O =	@SQLITE3_A10N_O@
 JAVAH =		@JAVAH@
 JAVA_RUN =	@JAVA_RUN@
+JAVA_FLAGS =	@JAVA_FLAGS@
 JAVAC =		@JAVAC@
+JAVAC_FLAGS =	@JAVAC_FLAGS@
 JAVADOC =	@JAVADOC@
 JAVADOCLINK =	http://java.sun.com/javase/6/docs/api
 JAR =		@JAR@
@@ -61,7 +64,7 @@ LIBS=	@SQLITE_LIB@ @SQLITE3_LIB@ @LDFLAGS@ @BDB_LIB@
 # Rule to compile `java' files
 #
 .java.class:
-	$(JAVAC) -classpath $(PWD) $(JAVAC_FLAGS) $<
+	$(JAVAC) -classpath $(CURDIR) $(JAVAC_FLAGS) $<
 
 CLASSES = \
 	SQLite/Authorizer.class \
@@ -87,11 +90,11 @@ CLASSES = \
 	SQLite/SQLRestore.class \
 	SQLite/Profile.class
 
-PRIVATE_CLASSES = \
+COMMON_CLASSES = \
 	SQLite/Benchmark.class \
 	SQLite/BenchmarkThread.class \
 	SQLite/DBDump.class \
-	SQLite/JDBCDriver.class \
+	SQLite/JDBC.class \
 	SQLite/@JDBCVER@/JDBCConnection.class \
 	SQLite/@JDBCVER@/JDBCStatement.class \
 	SQLite/@JDBCVER@/JDBCResultSet.class \
@@ -101,6 +104,24 @@ PRIVATE_CLASSES = \
 	SQLite/@JDBCVER@/BatchArg.class \
 	SQLite/@JDBCVER@/TableResultX.class \
 	SQLite/@JDBCVER@/DatabaseX.class
+
+JDBC_DATA_SOURCE_CLASSES = \
+	SQLite/JDBCDataSource.class \
+	SQLite/BenchmarkDataSource.class
+
+JDBC_DRIVER_CLASSES = \
+	SQLite/JDBCDriver.class \
+	SQLite/BenchmarkDriver.class
+
+JDBC0_CLASSES = $(JDBC_DATA_SOURCE_CLASSES)
+JDBC1_CLASSES = $(JDBC_DRIVER_CLASSES)
+JDBC2_CLASSES = $(JDBC_DRIVER_CLASSES)
+JDBC2x_CLASSES = $(JDBC_DRIVER_CLASSES) $(JDBC_DATA_SOURCE_CLASSES)
+JDBC2y_CLASSES = $(JDBC_DRIVER_CLASSES) $(JDBC_DATA_SOURCE_CLASSES)
+JDBC2z_CLASSES = $(JDBC_DRIVER_CLASSES) $(JDBC_DATA_SOURCE_CLASSES)
+JDBC2z1_CLASSES = $(JDBC_DRIVER_CLASSES) $(JDBC_DATA_SOURCE_CLASSES)
+
+PRIVATE_CLASSES = $(COMMON_CLASSES) $(@JDBCVER@_CLASSES)
 
 DOCSRCS = \
 	SQLite/Authorizer.java \
@@ -136,7 +157,7 @@ META-INF/services/java.sql.Driver:
 sqlite.jar:	$(CLASSES) $(PRIVATE_CLASSES) META-INF/services/java.sql.Driver
 	$(JAR) cmf manifest sqlite.jar $(CLASSES) $(PRIVATE_CLASSES)
 	case "@JDBCVER@" in \
-	    JDBC2z) \
+	    JDBC2z*) \
 		$(JAR) uf sqlite.jar META-INF/services/java.sql.Driver ; \
 		;; \
 	esac
@@ -144,7 +165,7 @@ sqlite.jar:	$(CLASSES) $(PRIVATE_CLASSES) META-INF/services/java.sql.Driver
 native/sqlite_jni.h:	SQLite/Database.class SQLite/Vm.class \
 	SQLite/FunctionContext.class SQLite/Stmt.class SQLite/Blob.class \
 	SQLite/Backup.class SQLite/Profile.class
-	$(JAVAH) -classpath $(PWD) -o native/sqlite_jni.h \
+	$(JAVAH) -classpath $(CURDIR) -o native/sqlite_jni.h \
 	    SQLite.Database SQLite.Vm \
 	    SQLite.FunctionContext SQLite.Stmt SQLite.Blob SQLite.Backup \
 	    SQLite.Profile
@@ -156,14 +177,14 @@ $(SQLITE3_A10N_O):	$(SQLITE3_A10N_C)
 	$(LIBTOOL) --mode=compile $(CC) -c $(CFLAGS) $(SQLITE3_A10N_C)
 
 libsqlite_jni.la:	sqlite_jni.lo $(SQLITE3_A10N_O)
-	$(LIBTOOL) --mode=link $(CC) -o libsqlite_jni.la sqlite_jni.lo \
-	    $(SQLITE3_A10N_O) -rpath $(NATIVE_LIB_DIR) \
+	$(LIBTOOL) --mode=link $(CC) $(CFLAGS) -o libsqlite_jni.la \
+	    sqlite_jni.lo $(SQLITE3_A10N_O) -rpath $(NATIVE_LIB_DIR) \
 	    -module -avoid-version $(LIBS)
 
 native/mkconst:	native/mkconst.c
-	$(LIBTOOL) --mode=link $(CC) @CFLAGS@ $(SQLITE_INC) $(SQLITE3_INC) \
-	    -DHAVE_SQLITE2=@HAVE_SQLITE2@ -DHAVE_SQLITE3=@HAVE_SQLITE3@ \
-	    -o native/mkconst native/mkconst.c $(LIBS)
+	$(LIBTOOL) --mode=link $(HOSTCC) @HOST_CFLAGS@ $(SQLITE_INC) \
+	    $(SQLITE3_INC) -DHAVE_SQLITE2=@HAVE_SQLITE2@ \
+	    -DHAVE_SQLITE3=@HAVE_SQLITE3@ -o native/mkconst native/mkconst.c
 
 Makefile:	Makefile.in configure config.status
 	./config.status
@@ -172,21 +193,21 @@ configure:	configure.in
 	autoconf
 
 test:	all
-	$(JAVAC) -classpath sqlite.jar:$(PWD) test.java
-	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(PWD)/.libs" \
-	    $(JAVA_RUN) -classpath sqlite.jar:$(PWD) \
-	    -DSQLite.library.path=$(PWD)/.libs test
+	$(JAVAC) -classpath sqlite.jar:$(CURDIR) $(JAVAC_FLAGS) test.java
+	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(CURDIR)/.libs" \
+	    $(JAVA_RUN) $(JAVA_FLAGS) -classpath sqlite.jar:$(CURDIR) \
+	    -DSQLite.library.path=$(CURDIR)/.libs test
 
 test2:	test
-	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(PWD)/.libs" \
-	    $(JAVA_RUN) -classpath sqlite.jar:$(PWD) \
-	    -DSQLite.library.path=$(PWD)/.libs test db2
+	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(CURDIR)/.libs" \
+	    $(JAVA_RUN) $(JAVA_FLAGS) -classpath sqlite.jar:$(CURDIR) \
+	    -DSQLite.library.path=$(CURDIR)/.libs test db2
 
 test3:	all
-	$(JAVAC) -classpath sqlite.jar:$(PWD) test3.java
-	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(PWD)/.libs" \
-	    $(JAVA_RUN) -classpath sqlite.jar:$(PWD) \
-	    -DSQLite.library.path=$(PWD)/.libs test3
+	$(JAVAC) -classpath sqlite.jar:$(CURDIR) $(JAVAC_FLAGS) test3.java
+	LD_LIBRARY_PATH="$$LD_LIBRARY_PATH:$(CURDIR)/.libs" \
+	    $(JAVA_RUN) $(JAVA_FLAGS) -classpath sqlite.jar:$(CURDIR) \
+	    -DSQLite.library.path=$(CURDIR)/.libs test3
 
 clean:
 	$(RM) SQLite/*.class SQLite/@JDBCVER@/*.class *.lo *.la *.o *~ \

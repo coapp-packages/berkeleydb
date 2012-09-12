@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2006, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2006, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -14,6 +14,7 @@ typedef struct {
 	char *host;		/* Host name. */
 	u_int32_t port;		/* Port on which to connect to this site. */
 	int peer;		/* Whether remote site is repmgr peer. */
+	int creator;		/* Whether local site is group creator. */
 } repsite_t;
 
 /* Data used for common replication setup. */

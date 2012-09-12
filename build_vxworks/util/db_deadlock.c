@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -12,7 +12,7 @@
 
 #ifndef lint
 static const char copyright[] =
-    "Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.\n";
+    "Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.\n";
 #endif
 
 int db_deadlock_main __P((int, char *[]));
@@ -102,10 +102,17 @@ db_deadlock_main(argc, argv)
 			logfile = optarg;
 			break;
 		case 'P':
+			if (passwd != NULL) {
+				fprintf(stderr, DB_STR("5136",
+					"Password may not be specified twice"));
+				free(passwd);
+				return (EXIT_FAILURE);
+			}
 			passwd = strdup(optarg);
 			memset(optarg, 0, strlen(optarg));
 			if (passwd == NULL) {
-				fprintf(stderr, "%s: strdup: %s\n",
+				fprintf(stderr, DB_STR_A("5100",
+				    "%s: strdup: %s\n", "%s %s\n"),
 				    progname, strerror(errno));
 				return (EXIT_FAILURE);
 			}
@@ -173,15 +180,16 @@ db_deadlock_main(argc, argv)
 
 	/* An environment is required. */
 	if ((ret = dbenv->open(dbenv, home, DB_USE_ENVIRON, 0)) != 0) {
-		dbenv->err(dbenv, ret, "open");
+		dbenv->err(dbenv, ret, DB_STR("5101", "open"));
 		goto err;
 	}
 
 	while (!__db_util_interrupted()) {
 		if (verbose) {
 			(void)time(&now);
-			dbenv->errx(dbenv,
-			    "running at %.24s", __os_ctime(&now, time_buf));
+			dbenv->errx(dbenv, DB_STR_A("5102",
+			    "running at %.24s", "%.24s"),
+			     __os_ctime(&now, time_buf));
 		}
 
 		if ((ret =
@@ -190,7 +198,8 @@ db_deadlock_main(argc, argv)
 			goto err;
 		}
 		if (verbose)
-			dbenv->errx(dbenv, "rejected %d locks", rejected);
+			dbenv->errx(dbenv, DB_STR_A("5103",
+			    "rejected %d locks", "%d"), rejected);
 
 		/* Make a pass every "secs" secs and "usecs" usecs. */
 		if (secs == 0 && usecs == 0)
@@ -239,10 +248,10 @@ db_deadlock_version_check()
 	/* Make sure we're loaded with the right version of the DB library. */
 	(void)db_version(&v_major, &v_minor, &v_patch);
 	if (v_major != DB_VERSION_MAJOR || v_minor != DB_VERSION_MINOR) {
-		fprintf(stderr,
-	"%s: version %d.%d doesn't match library version %d.%d\n",
-		    progname, DB_VERSION_MAJOR, DB_VERSION_MINOR,
-		    v_major, v_minor);
+		fprintf(stderr, DB_STR_A("5104",
+		    "%s: version %d.%d doesn't match library version %d.%d\n",
+		    "%s %d %d %d %d\n"), progname, DB_VERSION_MAJOR,
+		    DB_VERSION_MINOR, v_major, v_minor);
 		return (EXIT_FAILURE);
 	}
 	return (0);

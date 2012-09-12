@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -17,7 +17,8 @@ proc sdb011 { method {ndups 13} {nsubdbs 10} args} {
 	set args [convert_args $method $args]
 	set omethod [convert_method $method]
 
-	if { [is_queue $method] == 1 || [is_fixed_length $method] == 1 } {
+	if { [is_queue $method] == 1 || \
+	    [is_heap $method] == 1 || [is_fixed_length $method] == 1 } {
 		puts "Subdb011: skipping for method $method"
 		return
 	}

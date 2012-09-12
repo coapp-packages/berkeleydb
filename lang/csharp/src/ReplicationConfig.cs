@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -14,16 +14,15 @@ namespace BerkeleyDB {
     /// <see cref="DatabaseEnvironment"/>'s replication subsystem.
     /// </summary>
     public class ReplicationConfig {
-        internal Dictionary<ReplicationHostAddress, bool> remoteAddrs;
 
         /// <summary>
         /// Instantiate a new ReplicationConfig object with default
         /// configuration values.
         /// </summary>
         public ReplicationConfig() {
-            remoteAddrs = new Dictionary<ReplicationHostAddress, bool>();
             AutoInit = true;
             Elections = true;
+            RepmgrSitesConfig = new List<DbSiteConfig>();
         }
 
         #region Config Flags
@@ -39,6 +38,15 @@ namespace BerkeleyDB {
         /// <see cref="DatabaseEnvironment.RepSync"/>. 
         /// </summary>
         public bool DelayClientSync;
+        /// <summary>
+        /// If true, replication only stores the internal information in-memory
+        /// and cannot keep persistent state across a site crash or reboot. By
+        /// default, it is false and replication creates files in the
+        /// environment home directory to preserve the internal information. 
+        /// This configuration flag can only be set before the
+        /// <see cref="DatabaseEnvironment"/> is opened.
+        /// </summary>
+        public bool InMemory;
         /// <summary>
         /// If true, master leases will be used for this site (defaults to
         /// false). 
@@ -448,26 +456,8 @@ namespace BerkeleyDB {
         public AckPolicy RepMgrAckPolicy;
 
         /// <summary>
-        /// The host information for the local system. 
+        /// A list of site configurations.
         /// </summary>
-        public ReplicationHostAddress RepMgrLocalSite;
-
-        /// <summary>
-        /// Add a new replication site to the replication manager's list of
-        /// known sites. It is not necessary for all sites in a replication
-        /// group to know about all other sites in the group. 
-        /// </summary>
-        /// <remarks>
-        /// Currently, the replication manager framework only supports a single
-        /// client peer, and the last specified peer is used.
-        /// </remarks>
-        /// <param name="host">The remote site's address</param>
-        /// <param name="isPeer">
-        /// If true, configure client-to-client synchronization with the
-        /// specified remote site.
-        /// </param>
-        public void AddRemoteSite(ReplicationHostAddress host, bool isPeer) {
-            remoteAddrs.Add(host, isPeer);
-        }
+        public List<DbSiteConfig> RepmgrSitesConfig;
     }
 }

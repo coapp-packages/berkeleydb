@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -20,9 +20,21 @@ proc rep081 { method { niter 200 } { tnum "081" } args } {
 	global databases_in_memory
 	global repfiles_in_memory
 
-	# Valid for all access methods.
+	# Due to the nature of the heap tcl infrastructure, this
+	# test can fail for heap, although it does not represent 
+	# real BDB failure.
 	if { $checking_valid_methods } {
-		return "ALL"
+		set test_methods {}
+		foreach method $valid_methods {
+			if { [is_heap $method] != 1 } {
+				lappend test_methods $method
+			}
+		}
+		return $test_methods
+	}
+	if { [is_heap $method] == 1 } {
+		puts "Skipping test$tnum for method $method."
+		return
 	}
 
 	set args [convert_args $method $args]
@@ -54,18 +66,22 @@ proc rep081 { method { niter 200 } { tnum "081" } args } {
 
 	# Run with options to remove or replace the master database file.
 	set testopts { removefile replacefile }
+	set metaopts { nometadir metadir }
 	foreach t $testopts {
-		foreach l $logsets {
-			puts "Rep$tnum ($method $t $args): Test of\
-			    internal init with missing db file $msg $msg2."
-			puts "Rep$tnum: Master logs are [lindex $l 0]"
-			puts "Rep$tnum: Client logs are [lindex $l 1]"
-			rep081_sub $method $niter $tnum $l $t $args
+		foreach m $metaopts {
+			foreach l $logsets {
+				puts "Rep$tnum ($method $t $m $args): Test of\
+				    internal init with missing db file $msg\
+				    $msg2."
+				puts "Rep$tnum: Master logs are [lindex $l 0]"
+				puts "Rep$tnum: Client logs are [lindex $l 1]"
+				rep081_sub $method $niter $tnum $l $t $m $args
+			}
 		}
 	}
 }
 
-proc rep081_sub { method niter tnum logset testopt largs } {
+proc rep081_sub { method niter tnum logset testopt metaopt largs } {
 	global testdir
 	global util_path
 	global databases_in_memory
@@ -93,6 +109,15 @@ proc rep081_sub { method niter tnum logset testopt largs } {
 	file mkdir $masterdir
 	file mkdir $clientdir
 
+	set meta_diropts ""
+	set meta_dir ""
+	if { $metaopt == "metadir" } {
+		set meta_dir "meta"
+		file mkdir $masterdir/$meta_dir
+		file mkdir $clientdir/$meta_dir
+		set meta_diropts "-metadata_dir $meta_dir"
+	}
+
 	# Log size is small so we quickly create more than one.
 	# The documentation says that the log file must be at least
 	# four times the size of the in-memory log buffer.
@@ -113,7 +138,7 @@ proc rep081_sub { method niter tnum logset testopt largs } {
 	repladd 1
 	set ma_envcmd "berkdb_env_noerr -create $m_txnargs $repmemargs \
 	    $m_logargs -log_max $log_max -errpfx MASTER $verbargs \
-	    -home $masterdir -rep_transport \[list 1 replsend\]"
+	    $meta_diropts -home $masterdir -rep_transport \[list 1 replsend\]"
 	set masterenv [eval $ma_envcmd -rep_master]
 	$masterenv rep_limit 0 0
 
@@ -165,7 +190,7 @@ proc rep081_sub { method niter tnum logset testopt largs } {
 	repladd 2
 	set cl_envcmd "berkdb_env_noerr -create $c_txnargs $repmemargs \
 	    $c_logargs -log_max $log_max -errpfx CLIENT $verbargs \
-	    -home $clientdir -rep_transport \[list 2 replsend\]"
+	    $meta_diropts -home $clientdir -rep_transport \[list 2 replsend\]"
 	set clientenv [eval $cl_envcmd -rep_client]
 	$clientenv rep_limit 0 0
 	set envlist "{$masterenv 1} {$clientenv 2}"
@@ -208,10 +233,22 @@ proc rep081_sub { method niter tnum logset testopt largs } {
 		# Internal init file is very transient, but exists in
 		# the rep files on-disk case during the second iteration
 		# of this loop. Take this chance to make sure the internal
-		# init file doesn't exist when rep files are in-memory.
-		if { $i == 1 && $repfiles_in_memory == 1 } {
-			error_check_good noinit \
-			    [file exists "$clientdir/__db.rep.init"] 0
+		# init file doesn't exist when rep files are in-memory, or
+		# that it exists in the correct location when rep files are
+		# on-disk.
+		if { $i == 1 } {
+			if { $repfiles_in_memory == 1 } {
+				error_check_good noinit \
+				    [file exists "$clientdir/__db.rep.init"] 0
+			} else {
+				if { $meta_dir == "" } {
+					set chkdir "$clientdir"
+				} else {
+					set chkdir "$clientdir/$meta_dir"
+				}
+				error_check_good initfile \
+				    [file exists "$chkdir/__db.rep.init"] 1
+			}
 		}
 		#
 		# When we are in internal init, remove the mdb database file.

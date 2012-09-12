@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -17,6 +17,23 @@ using BerkeleyDB;
 
 namespace CsharpAPITest
 {
+    class BackupWriter : IBackup {
+        FileStream f;
+        public int Close(string dbname) {
+            f.Close();
+            return 0;
+        }
+        public int Open(string dbname, string target) {
+            string path = Path.Combine(target, dbname);
+            f = new FileStream(path, FileMode.Create);
+            return 0;
+        }
+        public int Write(byte[] data, long offset, int count) {
+            f.Seek(offset, SeekOrigin.Begin);
+            f.Write(data, 0, count);
+            return 0;
+        }
+    }
 	[TestFixture]
 	public class DatabaseEnvironmentTest : CSharpTestFixture
 	{
@@ -138,6 +155,201 @@ namespace CsharpAPITest
 
 			env.Close();
 		}
+
+        [Test]
+        public void TestBackup() {
+            testName = "TestBackup";
+            SetUpTest(true);
+            string dbFileName = testName + ".db";
+
+            // Open an environment.
+            DatabaseEnvironmentConfig envConfig =
+                new DatabaseEnvironmentConfig();
+            envConfig.AutoCommit = true;
+            envConfig.Create = true;
+            envConfig.UseMPool = true;
+            envConfig.UseLogging = true;
+            envConfig.UseTxns = true;
+            DatabaseEnvironment env = DatabaseEnvironment.Open(
+                testHome, envConfig);
+
+            // Open a databases.
+            BTreeDatabaseConfig dbConfig =
+                new BTreeDatabaseConfig();
+            dbConfig.Creation = CreatePolicy.IF_NEEDED;
+            dbConfig.Env = env;
+            BTreeDatabase db = BTreeDatabase.Open(
+                dbFileName, dbConfig);
+
+            /*
+             * Put 1000 records into the database to generate
+             * more than one log file.
+             */
+            byte[] byteArr = new byte[1024];
+            for (int i = 0; i < 1000; i++)
+                db.Put(new DatabaseEntry(
+                    BitConverter.GetBytes(i)),
+                    new DatabaseEntry(byteArr));
+
+            db.Close();
+
+            /* Set up the target directory for the backup. */
+            string target = testFixtureHome + "/" + testName + "_backup";
+            Configuration.ClearDir(target);
+            
+            BackupOptions opt = new BackupOptions();
+            opt.Creation = CreatePolicy.ALWAYS;
+            env.Backup(target, opt);
+            Assert.Greater(Directory.GetFiles(target).Length, 0);
+            Directory.Delete(target, true);
+            env.Close();
+        }
+
+        [Test]
+        public void TestBackupCallbacks() {
+            testName = "TestBackupCallbacks";
+            SetUpTest(true);
+            string dbFileName = testName + ".db";
+
+            // Open an environment.
+            DatabaseEnvironmentConfig envConfig =
+                new DatabaseEnvironmentConfig();
+            envConfig.AutoCommit = true;
+            envConfig.Create = true;
+            envConfig.UseMPool = true;
+            envConfig.UseLogging = true;
+            envConfig.UseTxns = true;
+            DatabaseEnvironment env = DatabaseEnvironment.Open(
+                testHome, envConfig);
+
+            // Open a databases.
+            BTreeDatabaseConfig dbConfig =
+                new BTreeDatabaseConfig();
+            dbConfig.Creation = CreatePolicy.IF_NEEDED;
+            dbConfig.Env = env;
+            BTreeDatabase db = BTreeDatabase.Open(
+                dbFileName, dbConfig);
+
+            /*
+             * Populate the database but keep it small, we're going to do a 
+             * byte-by-byte comparison at the end.
+             */
+            byte[] byteArr = new byte[1024];
+            for (int i = 0; i < 10; i++)
+                db.Put(new DatabaseEntry(
+                    BitConverter.GetBytes(i)),
+                    new DatabaseEntry(byteArr));
+
+            db.Close();
+
+            /* Set up the target directory for the backup. */
+            string target = testFixtureHome + "/" + testName + "_backup";
+            Configuration.ClearDir(target);
+            
+            BackupWriter backup = new BackupWriter();
+            env.BackupHandler = backup;
+
+            BackupOptions opt = new BackupOptions();
+            opt.Creation = CreatePolicy.ALWAYS;
+            env.Backup(target, opt);
+            Assert.Greater(Directory.GetFiles(target).Length, 0);
+            
+            /* Check that our callbacks wrote the file correctly. */
+            FileStream orig = new FileStream(Path.Combine(testHome, dbFileName), FileMode.Open, FileAccess.Read);
+            FileStream bak = new FileStream(Path.Combine(target, dbFileName), FileMode.Open, FileAccess.Read);
+            int orig_byte, bak_byte;
+            do {
+                orig_byte = orig.ReadByte();
+                bak_byte = bak.ReadByte();
+                Assert.AreEqual(orig_byte, bak_byte);
+            } while (orig_byte != -1 && bak_byte != -1);
+            orig.Close();
+            bak.Close();
+            Directory.Delete(target, true);
+            env.Close();
+        }
+
+        [Test]
+        public void TestBackupDatabase() {
+            testName = "TestBackupDatabase";
+            SetUpTest(true);
+            string dbFileName = testName + ".db";
+
+            // Open an environment.
+            DatabaseEnvironmentConfig envConfig =
+                new DatabaseEnvironmentConfig();
+            envConfig.AutoCommit = true;
+            envConfig.Create = true;
+            envConfig.UseMPool = true;
+            envConfig.UseLogging = true;
+            envConfig.UseTxns = true;
+            DatabaseEnvironment env = DatabaseEnvironment.Open(
+                testHome, envConfig);
+
+            // Open a databases.
+            BTreeDatabaseConfig dbConfig =
+                new BTreeDatabaseConfig();
+            dbConfig.Creation = CreatePolicy.IF_NEEDED;
+            dbConfig.Env = env;
+            BTreeDatabase db = BTreeDatabase.Open(
+                dbFileName, dbConfig);
+            
+            /*
+             * Put 1000 records into the database to generate
+             * more than one log file.
+             */
+            byte[] byteArr = new byte[1024];
+            for (int i = 0; i < 1000; i++)
+                db.Put(new DatabaseEntry(
+                    BitConverter.GetBytes(i)),
+                    new DatabaseEntry(byteArr));
+            
+            db.Close();
+
+            /* Set up the target directory for the backup. */
+            string target = testFixtureHome + "/" + testName + "_backup";
+            Configuration.ClearDir(target);
+            
+            /* We should only copy one file, the database. */
+            env.BackupDatabase(target, dbFileName, true);
+            Assert.AreEqual(Directory.GetFiles(target).Length, 1);
+            
+            Directory.Delete(target, true);
+            env.Close();
+        }
+
+        [Test]
+        public void TestBackupOptions() {
+            testName = "TestBackupOptions";
+            SetUpTest(true);
+            
+            // Open an environment.
+            DatabaseEnvironmentConfig envConfig =
+                new DatabaseEnvironmentConfig();
+            envConfig.AutoCommit = true;
+            envConfig.Create = true;
+            envConfig.UseMPool = true;
+            envConfig.UseLogging = true;
+            envConfig.UseTxns = true;
+            DatabaseEnvironment env = DatabaseEnvironment.Open(
+                testHome, envConfig);
+
+            /* 
+             * Check that we can get and set backup options successfully.  There
+             * are other tests to check that the backup options are obeyed.
+             */
+            env.BackupBufferSize = (uint)1024;
+            Assert.AreEqual(env.BackupBufferSize, (uint)1024);
+            
+            env.BackupReadCount = (uint)4096;
+            Assert.AreEqual(env.BackupReadCount, (uint)4096);
+            
+            env.BackupReadSleepDuration = (uint)1000;
+            Assert.AreEqual(env.BackupReadSleepDuration, (uint)1000);
+            
+            env.BackupWriteDirect = true;
+            Assert.IsTrue(env.BackupWriteDirect);
+        }
 
 		[Test]
 		public void TestBeginCDSGroup()
@@ -563,6 +775,94 @@ namespace CsharpAPITest
 		}
 
 		[Test]
+		public void TestEncryption() 
+		{
+			testName = "TestEncryption";
+			SetUpTest(true);
+
+			// Open an encrypted environment.
+			DatabaseEnvironmentConfig envCfg =
+			    new DatabaseEnvironmentConfig();
+			envCfg.Create = true;
+			envCfg.UseMPool = true;
+			envCfg.UseLogging = true;
+			envCfg.UseTxns = true;
+			envCfg.SetEncryption("bdb", EncryptionAlgorithm.AES);
+			DatabaseEnvironment env =
+			DatabaseEnvironment.Open(testHome, envCfg);
+			Transaction txn = env.BeginTransaction();
+
+			// Open a non-encrypted database in the environment.
+			BTreeDatabaseConfig dbCfg =
+			    new BTreeDatabaseConfig();
+			dbCfg.Creation = CreatePolicy.IF_NEEDED;
+			dbCfg.Env = env;
+			BTreeDatabase db1 = BTreeDatabase.Open(
+			    testName + "1.db", dbCfg, txn);
+			Assert.IsFalse(db1.Encrypted);
+			for (int i = 0; i < 10; i++)
+				db1.Put(new DatabaseEntry(
+				    BitConverter.GetBytes(i)),
+				    new DatabaseEntry(
+				    BitConverter.GetBytes(i)), txn);
+
+			// Open an encrypted database in the environment.
+			dbCfg.Encrypted = true;
+			BTreeDatabase db2 = BTreeDatabase.Open(
+			    testName + "2.db", dbCfg, txn);
+			Assert.IsTrue(db2.Encrypted);
+			for (int i = 0; i < 10; i++)
+			db2.Put(new DatabaseEntry(BitConverter.GetBytes(i)),
+			    new DatabaseEntry(BitConverter.GetBytes(i)), txn);
+
+			// Close all.
+			txn.Commit();
+			db1.Close();
+			db2.Close();
+			env.Close();
+
+			// Verify the environment is encrypted.
+			DatabaseEnvironmentConfig verifyEnvCfg =
+			    new DatabaseEnvironmentConfig();
+			verifyEnvCfg.Create = true;
+			verifyEnvCfg.UseMPool = true;
+			verifyEnvCfg.UseLogging = true;
+			verifyEnvCfg.UseTxns = true;
+			try {
+				env = DatabaseEnvironment.Open(
+				    testHome, verifyEnvCfg);
+				// Do nothing
+				env.Close();
+				throw new TestException();
+			} catch (DatabaseException) {
+			}
+
+			// Verify the non-encrypted database is not encrypted.
+			BTreeDatabaseConfig verifyDbCfg =
+			    new BTreeDatabaseConfig();
+			verifyDbCfg.Creation = CreatePolicy.IF_NEEDED;
+
+			using (db1 = BTreeDatabase.Open(
+			    testHome + "/" + testName + "1.db", verifyDbCfg)) {
+				for (int i = 0; i < 10; i++)
+					db1.Get(new DatabaseEntry(
+					    BitConverter.GetBytes(i)));
+			};
+
+			/// Verify the encrypted database is encrypted.
+			verifyDbCfg.SetEncryption(envCfg.EncryptionPassword,
+			    envCfg.EncryptAlgorithm);
+			verifyDbCfg.Encrypted = true;
+			using (db1 = BTreeDatabase.Open(
+			    testHome + "/" + testName + "2.db",
+			    verifyDbCfg)) {
+				for (int i = 0; i < 10; i++)
+					db1.Get(new DatabaseEntry(
+					    BitConverter.GetBytes(i)));
+			};
+		}
+
+		[Test]
 		public void TestFailCheck()
 		{
 			testName = "TestFailCheck";
@@ -665,6 +965,61 @@ namespace CsharpAPITest
 		}
 
 		[Test]
+		public void TestMetadataDir()
+		{
+			testName = "TestMetadataDir";
+			SetUpTest(true);
+
+			DatabaseEnvironmentConfig cfg =
+			    new DatabaseEnvironmentConfig();
+			cfg.Create = true;
+			cfg.UseLocking = true;
+			cfg.UseLogging = true;
+			cfg.UseMPool = true;
+			cfg.UseReplication = true;
+			cfg.UseTxns = true;
+
+			// Metadata Directory defaults to NULL
+			DatabaseEnvironment env =
+			    DatabaseEnvironment.Open(testHome, cfg);
+			Assert.Null(env.MetadataDir);
+			env.Close();
+			int cnt = Directory.GetFiles(
+			    testHome, "__db.rep.system*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.gen*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.egen*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.init*").Length;
+			Assert.Less(0, cnt);
+
+			// Set Metadata Directory
+			Configuration.ClearDir(testHome);
+			string md = testHome + "/" + "Meta";
+			Directory.CreateDirectory(md);
+			cfg.MetadataDir = "Meta";
+			env = DatabaseEnvironment.Open(testHome, cfg);
+			Assert.AreEqual("Meta", env.MetadataDir);
+			env.Close();
+			cnt = Directory.GetFiles(
+			    testHome, "__db.rep.system*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.gen*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.egen*").Length +
+			    Directory.GetFiles(
+			    testHome, "__db.rep.init*").Length;
+			Assert.AreEqual(0, cnt);
+			cnt =
+			    Directory.GetFiles(md, "__db.rep.system*").Length +
+			    Directory.GetFiles(md, "__db.rep.gen*").Length +
+			    Directory.GetFiles(md, "__db.rep.egen*").Length +
+			    Directory.GetFiles(md, "__db.rep.init*").Length;
+			Assert.Less(0, cnt);
+		}
+
+		[Test]
 		public void TestMutexSystemStats()
 		{
 			testName = "TestMutexSystemStats";
@@ -689,6 +1044,9 @@ namespace CsharpAPITest
 			Assert.AreEqual(512, stats.Alignment);
 			Assert.AreEqual(stats.Count, stats.Available + stats.InUse);
 			Assert.LessOrEqual(stats.InUse, stats.MaxInUse);
+			Assert.AreNotEqual(0, stats.InitCount);
+			Assert.AreNotEqual(0, stats.Max);
+			Assert.AreNotEqual(0, stats.RegionMax);
 			Assert.AreNotEqual(0, stats.RegionSize);
 			Assert.AreEqual(0, stats.RegionWait);
 			Assert.AreEqual(10, stats.TASSpins);
@@ -936,10 +1294,8 @@ namespace CsharpAPITest
 
 			// Verify partial log.
 			DateTime time = DateTime.Now;
-			DateTime startTime = new DateTime(time.Year, time.Month,
-			    time.Day, time.Hour, time.Minute - 2, time.Second);
-			DateTime endTime = new DateTime(time.Year, time.Month,
-			    time.Day, time.Hour, time.Minute - 1, time.Second);
+			DateTime startTime = time.AddMinutes(-2);
+			DateTime endTime = time.AddMinutes(-1);
 			logVerifyCfg.StartTime = startTime;
 			logVerifyCfg.EndTime = endTime;
 			Assert.AreEqual(0, env.LogVerify(logVerifyCfg));
@@ -1055,6 +1411,7 @@ namespace CsharpAPITest
 			Assert.AreNotEqual(0, stats.RegionLockNoWait);
 			Assert.AreEqual(0, stats.RegionLockWait);
 			Assert.LessOrEqual(0, stats.RegionSize);
+			Assert.AreNotEqual(0, stats.RegionMax);
 			Assert.AreEqual(0, stats.ThawedBuffers);
 
 			Transaction txn = env.BeginTransaction();
@@ -1068,6 +1425,7 @@ namespace CsharpAPITest
 			stats = env.MPoolSystemStats();
 			Assert.AreEqual(1, stats.Files.Count);
 			Assert.AreEqual(testName + ".db", stats.Files[0].FileName);
+			Assert.AreEqual(0, stats.Files[0].BackupSpins);
 			Assert.AreEqual(0, stats.Files[0].MappedPages);
 			Assert.AreEqual(0, stats.Files[0].PagesCreatedInCache);
 			Assert.AreEqual(0, stats.Files[0].PagesInCache);
@@ -1443,6 +1801,7 @@ namespace CsharpAPITest
 					Assert.AreEqual(0, stats.Active);
 					Assert.AreEqual(0, stats.Begun);
 					Assert.AreEqual(0, stats.Committed);
+					Assert.AreEqual(0, stats.InitTxns);
 					Assert.AreEqual(0, stats.LastCheckpoint.LogFileNumber);
 					Assert.AreEqual(0, stats.LastCheckpoint.Offset);
 					Assert.AreEqual(50, stats.MaxTransactions);
@@ -1529,12 +1888,6 @@ namespace CsharpAPITest
 						    stats.Transactions[1].ThreadID);
 						Assert.AreEqual(stats.Transactions[0].ProcessID,
 						    stats.Transactions[1].ProcessID);
-
-						// All transactions are alive.
-						Assert.AreEqual(ActiveTransaction.TransactionStatus.RUNNING,
-						    stats.Transactions[0].Status);
-						Assert.AreEqual(ActiveTransaction.TransactionStatus.RUNNING,
-						    stats.Transactions[1].Status);
 
 						Assert.AreEqual(50, stats.Transactions[0].Priority);
 						Assert.AreEqual(50, stats.Transactions[1].Priority);
@@ -1881,8 +2234,6 @@ namespace CsharpAPITest
 				    "AutoInit", env.RepAutoInit, compulsory);
 				Configuration.ConfirmBool(childElem,
 				    "NoBlocking", env.RepNoBlocking, compulsory);
-				Configuration.ConfirmUint(childElem,
-				    "NSites", env.RepNSites, compulsory);
 				Configuration.ConfirmUint(childElem,
 				    "Priority", env.RepPriority, compulsory);
 				Configuration.ConfirmAckPolicy(childElem,

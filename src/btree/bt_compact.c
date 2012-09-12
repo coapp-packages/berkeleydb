@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -312,18 +312,26 @@ next:	/*
 	 * number.  We may already have it, if not get it here.
 	 */
 	if ((nentry = NUM_ENT(pg)) != 0) {
-		next_p = 0;
 		/* Get a copy of the first recno on the page. */
 		if (dbc->dbtype == DB_RECNO) {
 			if ((ret = __db_retcopy(dbp->env, start,
 			     &cp->recno, sizeof(cp->recno),
 			     &start->data, &start->ulen)) != 0)
 				goto err;
-		} else if (start->size == 0 && (ret = __db_ret(dbc,
+		} else if (((next_p == 1 && npgno == PGNO_INVALID) ||
+		    start->size == 0) && (ret = __db_ret(dbc,
 		    pg, 0, start, &start->data, &start->ulen)) != 0)
 			goto err;
 
-		if (npgno == PGNO_INVALID) {
+		next_p = 0;
+		/*
+		 * If there is no next page we can stop unless there is
+		 * a possibility of moving this data to a lower numbered
+		 * page.
+		 */
+		if (npgno == PGNO_INVALID &&
+		    (!check_trunc || PGNO(pg) <= c_data->compact_truncate ||
+		    PGNO(pg) == BAM_ROOT_PGNO(dbc))) {
 			/* End of the tree, check its duplicates and exit. */
 			PTRACE(dbc, "GoDone", PGNO(pg), start, 0);
 			if (check_dups && (ret = __bam_compact_dups(dbc,
@@ -457,7 +465,7 @@ retry:	pg = NULL;
 		 * The stack will be rooted at the page that spans
 		 * the current and next pages. The two subtrees
 		 * are returned below that.  For BTREE the current
-		 * page subtreee will be first while for RECNO the
+		 * page subtree will be first while for RECNO the
 		 * next page subtree will be first
 		 */
 		if (ndbc == NULL && (ret = __dbc_dup(dbc, &ndbc, 0)) != 0)
@@ -765,7 +773,7 @@ retry:	pg = NULL;
 	     P_FREESPACE(dbp, pg) > factor && c_data->compact_pages != 0) {
 		/*
 		 * merging may have to free the parent page, if it does,
-		 * refetch it but do it decending the tree.
+		 * refetch it but do it descending the tree.
 		 */
 		epg = &cp->csp[-1];
 		if ((ppg = epg->page) == NULL) {
@@ -1098,7 +1106,7 @@ __bam_merge_records(dbc, ndbc, factor, c_data)
 	PAGE *pg, *npg;
 	db_indx_t adj, indx, nent, *ninp, pind;
 	int32_t adjust;
-	u_int32_t freespace, nksize, pfree, size;
+	u_int32_t freespace, len, nksize, pfree, size;
 	int first_dup, is_dup, next_dup, n_ok, ret;
 	size_t (*func) __P((DB *, const DBT *, const DBT *));
 
@@ -1229,7 +1237,8 @@ __bam_merge_records(dbc, ndbc, factor, c_data)
 		indx -= adj;
 	}
 	bk = GET_BKEYDATA(dbp, npg, indx);
-	if (indx != 0 && BINTERNAL_SIZE(bk->len) >= pfree) {
+	len = (B_TYPE(bk->type) != B_KEYDATA) ? BOVERFLOW_SIZE : bk->len;
+	if (indx != 0 && BINTERNAL_SIZE(len) >= pfree) {
 		if (F_ISSET(dbc, DBC_OPD)) {
 			if (dbp->dup_compare == __bam_defcmp)
 				func = __bam_defpfx;
@@ -1244,7 +1253,7 @@ __bam_merge_records(dbc, ndbc, factor, c_data)
 	while (indx != 0 && ninp[indx] == ninp[indx - adj])
 		indx -= adj;
 
-	while (indx != 0 && BINTERNAL_SIZE(bk->len) >= pfree) {
+	while (indx != 0 && BINTERNAL_SIZE(len) >= pfree) {
 		if (B_TYPE(bk->type) != B_KEYDATA)
 			goto noprefix;
 		/*
@@ -1272,6 +1281,8 @@ noprefix:
 		} while (indx != 0 &&  ninp[indx] == ninp[indx - adj]);
 
 		bk = GET_BKEYDATA(dbp, npg, indx);
+		len =
+		    (B_TYPE(bk->type) != B_KEYDATA) ? BOVERFLOW_SIZE : bk->len;
 	}
 
 	/*
@@ -1336,9 +1347,9 @@ no_check: is_dup = first_dup = next_dup = 0;
 				goto err;
 			break;
 		default:
-			__db_errx(env,
+			__db_errx(env, DB_STR_A("1022",
 			    "Unknown record format, page %lu, indx 0",
-			    (u_long)PGNO(pg));
+			    "%lu"), (u_long)PGNO(pg));
 			ret = EINVAL;
 			goto err;
 		}
@@ -1724,7 +1735,7 @@ fits:	memset(&bi, 0, sizeof(bi));
 		 * If we merged any records then we will revisit this
 		 * node when we merge its leaves.  If not we will return
 		 * NOTGRANTED and our caller will do a retry.  We only
-		 * need to do this if we are in a transation. If not then
+		 * need to do this if we are in a transaction. If not then
 		 * we cannot abort and things will be hosed up on error
 		 * anyway.
 		 */
@@ -1787,7 +1798,7 @@ fits:	memset(&bi, 0, sizeof(bi));
 		/*
 		 * __bam_dpages may decide to collapse the tree
 		 * so we need to free our other stack.  The tree
-		 * will change in hight and our stack will nolonger
+		 * will change in height and our stack will nolonger
 		 * be valid.
 		 */
 		cp->csp = save_csp;
@@ -2040,6 +2051,7 @@ __bam_truncate_root_page(dbc, pg, indx, c_data)
 	BOVERFLOW *bo;
 	DB *dbp;
 	db_pgno_t *pgnop;
+	u_int32_t tlen;
 
 	COMPQUIET(c_data, NULL);
 	COMPQUIET(bo, NULL);
@@ -2049,16 +2061,21 @@ __bam_truncate_root_page(dbc, pg, indx, c_data)
 		if (B_TYPE(bi->type) == B_OVERFLOW) {
 			bo = (BOVERFLOW *)(bi->data);
 			pgnop = &bo->pgno;
-		} else
+			tlen = bo->tlen;
+		} else {
+			/* Tlen is not used if this is not an overflow. */
+			tlen = 0;
 			pgnop = &bi->pgno;
+		}
 	} else {
 		bo = GET_BOVERFLOW(dbp, pg, indx);
 		pgnop = &bo->pgno;
+		tlen = bo->tlen;
 	}
 
 	DB_ASSERT(dbp->env, IS_DIRTY(pg));
 
-	return (__db_truncate_root(dbc, pg, indx, pgnop, bo->tlen));
+	return (__db_truncate_root(dbc, pg, indx, pgnop, tlen));
 }
 
 /*
@@ -2309,8 +2326,8 @@ __bam_savekey(dbc, next, start)
 			data = bk->data;
 			len = bk->len;
 			if (len == 0) {
-no_key:				__db_errx(env,
-				    "Compact cannot handle zero length key");
+no_key:				__db_errx(env, DB_STR("1023",
+				    "Compact cannot handle zero length key"));
 				ret = DB_NOTFOUND;
 				goto err;
 			}
@@ -2607,9 +2624,11 @@ err:	if (txn != NULL && ret != 0)
 	else
 		sflag = 0;
 	if (txn == NULL) {
-		if ((t_ret = __LPUT(dbc, meta_lock)) != 0 && ret == 0)
+		if (dbc != NULL &&
+		    (t_ret = __LPUT(dbc, meta_lock)) != 0 && ret == 0)
 			ret = t_ret;
-		if ((t_ret = __LPUT(dbc, root_lock)) != 0 && ret == 0)
+		if (dbc != NULL &&
+		    (t_ret = __LPUT(dbc, root_lock)) != 0 && ret == 0)
 			ret = t_ret;
 	}
 	if (meta != NULL && (t_ret = __memp_fput(dbp->mpf,

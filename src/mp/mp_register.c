@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -37,8 +37,9 @@ __memp_register_pp(dbenv, ftype, pgin, pgout)
 	    env->mp_handle, "DB_ENV->memp_register", DB_INIT_MPOOL);
 
 	if (REP_ON(env)) {
-		__db_errx(env, "%s%s", "DB_ENV->memp_register: ",
-		    "method not permitted when replication is configured");
+		__db_errx(env, DB_STR_A("3001",
+		    "%smethod not permitted when replication is configured",
+		    "%s"), "DB_ENV->memp_register: ");
 		return (EINVAL);
 	}
 

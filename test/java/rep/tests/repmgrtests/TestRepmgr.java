@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  * 
- * Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 
@@ -22,8 +22,7 @@ import com.sleepycat.db.DatabaseEntry;
 import com.sleepycat.db.DatabaseType;
 import com.sleepycat.db.Environment;
 import com.sleepycat.db.EnvironmentConfig;
-import com.sleepycat.db.EventHandlerAdapter;
-import com.sleepycat.db.ReplicationHostAddress;
+import com.sleepycat.db.ReplicationManagerSiteConfig;
 import com.sleepycat.db.ReplicationManagerStartPolicy;
 import com.sleepycat.db.VerboseConfig;
 
@@ -37,29 +36,6 @@ public class TestRepmgr extends TestCase {
 	private static final String TEST_DIR_NAME = "TESTDIR";
 
 	private File testdir;
-	class MyEventHandler extends EventHandlerAdapter {
-		private boolean done = false;
-		private boolean panic = false;
-		
-		@Override
-		synchronized public void handleRepStartupDoneEvent() {
-			done = true;
-			notifyAll();
-		}
-		
-		@Override
-		synchronized public void handlePanicEvent() {
-			done = true;
-			panic = true;
-			notifyAll();
-		}
-		
-		synchronized void await() throws Exception {
-			while (!done) { wait(); }
-			if (panic)
-				throw new Exception("aborted by panic in DB");
-		}
-	}
 
 	@Before
 	public void setUp() throws Exception {
@@ -79,7 +55,14 @@ public class TestRepmgr extends TestCase {
 //			Util.rm_rf(testdir);
 	}
 
+    public void testSanity() {
+        int x = 1;
+        int y = 2;
+        assertTrue(x + y == 3);
+    }
+
 	public void testEnvCreate() throws Exception {
+            boolean junk = false;
 		// TODO: move this to a test runner.
 		if (Boolean.getBoolean("debug.pause")) {
 			// force DB to be loaded first (is this necessary?)
@@ -94,35 +77,47 @@ public class TestRepmgr extends TestCase {
 		
 		EnvironmentConfig ec = makeBasicConfig();
 		ec.setReplicationLimit(100000000);
-		ec.setReplicationManagerLocalSite(new ReplicationHostAddress("localhost", masterPort));
+                ReplicationManagerSiteConfig dbsite =
+                    new ReplicationManagerSiteConfig("localhost", masterPort);
+                dbsite.setLocalSite(true);
+		ec.addReplicationManagerSite(dbsite);
 		Environment master = new Environment(mkdir("master"), ec);
 		master.replicationManagerStart(3, ReplicationManagerStartPolicy.REP_MASTER);
 		
-		DatabaseConfig dc = new DatabaseConfig();
-		dc.setTransactional(true);
-		dc.setAllowCreate(true);
-		dc.setType(DatabaseType.BTREE);
-		Database db = master.openDatabase(null, "test.db", null, dc);
-		
-		DatabaseEntry key = new DatabaseEntry();
-		DatabaseEntry value = new DatabaseEntry();
-		value.setData("This is a reasonably long string.  The controller is responsible for maintaining the view, and for interpreting UI events and turning them into operations on the model.".getBytes());
-		int i = 0;
-		BtreeStats stats = (BtreeStats)db.getStats(null, null);
-		while (stats.getPageCount() < 400) {
+                if (junk) {
+                    DatabaseConfig dc = new DatabaseConfig();
+                    dc.setTransactional(true);
+                    dc.setAllowCreate(true);
+                    dc.setType(DatabaseType.BTREE);
+                    Database db = master.openDatabase(null, "test.db", null, dc);
+                    System.err.println("created database");
+                    
+                    
+                    DatabaseEntry key = new DatabaseEntry();
+                    DatabaseEntry value = new DatabaseEntry();
+                    value.setData("This is a reasonably long string.  The controller is responsible for maintaining the view, and for interpreting UI events and turning them into operations on the model.".getBytes());
+                    int i = 0;
+                    BtreeStats stats = (BtreeStats)db.getStats(null, null);
+                    while (stats.getPageCount() < 4) {
 			String k = "The record number is: " + ++i;
 			key.setData(k.getBytes());
 			db.put(null, key, value);
 			stats = (BtreeStats)db.getStats(null, null);
-		}
-		db.close();
+                    }
+                    db.close();
+                    System.err.println("closed database");
+                }
 
 		ec = makeBasicConfig();
 //		ec.setReplicationRequestMin(200);
 //		ec.setReplicationRequestMax(1000);
-		ec.setReplicationManagerLocalSite(new ReplicationHostAddress("localhost", clientPort));
-		ec.replicationManagerAddRemoteSite(new ReplicationHostAddress("localhost", masterPort), false);
-		MyEventHandler mon = new MyEventHandler();
+                dbsite = new ReplicationManagerSiteConfig("localhost", clientPort);
+                dbsite.setLocalSite(true);
+		ec.addReplicationManagerSite(dbsite);
+                dbsite = new ReplicationManagerSiteConfig("localhost", masterPort);
+                dbsite.setBootstrapHelper(true);
+		ec.addReplicationManagerSite(dbsite);
+		EventHandler mon = new EventHandler();
 		ec.setEventHandler(mon);
 		Environment client = new Environment(mkdir("client"), ec);
 		client.replicationManagerStart(2, ReplicationManagerStartPolicy.REP_CLIENT);
@@ -157,7 +152,6 @@ public class TestRepmgr extends TestCase {
 		ec.setInitializeReplication(true);
 		ec.setTransactional(true);
 		ec.setThreaded(true);
-		ec.setReplicationNumSites(3);
 		if (Boolean.getBoolean("VERB_REPLICATION"))
 			ec.setVerbose(VerboseConfig.REPLICATION, true);
 		return (ec);

@@ -1,6 +1,6 @@
 # DO NOT EDIT: automatically built by dist/s_android.
 # Makefile for building a drop-in replacement of SQLite using
-# Berkeley DB 11g Release 2, library version 11.2.5.1.25: (January 28, 2011)
+# Berkeley DB 11g Release 2, library version 11.2.5.3.21: (May 11, 2012)
 ###################################################################
 LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
@@ -10,7 +10,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := libsqlite
 
 # BDB_TOP will change with release numbers
-BDB_TOP := db-5.1.25
+BDB_TOP := db-5.3.21
 BDB_PATH := $(LOCAL_PATH)/$(BDB_TOP)/src
 
 # This directive results in arm (vs thumb) code.  It's necessary to
@@ -65,10 +65,12 @@ LOCAL_SRC_FILES := \
 	$(BDB_TOP)/src/db/db.c \
 	$(BDB_TOP)/src/db/db_am.c \
 	$(BDB_TOP)/src/db/db_auto.c \
+	$(BDB_TOP)/src/db/db_backup.c \
 	$(BDB_TOP)/src/db/db_cam.c \
 	$(BDB_TOP)/src/db/db_cds.c \
 	$(BDB_TOP)/src/db/db_compact.c \
 	$(BDB_TOP)/src/db/db_conv.c \
+	$(BDB_TOP)/src/db/db_copy.c \
 	$(BDB_TOP)/src/db/db_dispatch.c \
 	$(BDB_TOP)/src/db/db_dup.c \
 	$(BDB_TOP)/src/db/db_iface.c \
@@ -98,6 +100,7 @@ LOCAL_SRC_FILES := \
 	$(BDB_TOP)/src/dbreg/dbreg_stat.c \
 	$(BDB_TOP)/src/dbreg/dbreg_util.c \
 	$(BDB_TOP)/src/env/env_alloc.c \
+	$(BDB_TOP)/src/env/env_backup.c \
 	$(BDB_TOP)/src/env/env_config.c \
 	$(BDB_TOP)/src/env/env_failchk.c \
 	$(BDB_TOP)/src/env/env_file.c \
@@ -116,6 +119,7 @@ LOCAL_SRC_FILES := \
 	$(BDB_TOP)/src/fileops/fop_util.c \
 	$(BDB_TOP)/src/hash/hash_func.c \
 	$(BDB_TOP)/src/hash/hash_stub.c \
+	$(BDB_TOP)/src/heap/heap_stub.c \
 	$(BDB_TOP)/src/hmac/hmac.c \
 	$(BDB_TOP)/src/hmac/sha1.c \
 	$(BDB_TOP)/src/lock/lock.c \
@@ -139,6 +143,7 @@ LOCAL_SRC_FILES := \
 	$(BDB_TOP)/src/log/log_stat.c \
 	$(BDB_TOP)/src/log/log_verify_stub.c \
 	$(BDB_TOP)/src/mp/mp_alloc.c \
+	$(BDB_TOP)/src/mp/mp_backup.c \
 	$(BDB_TOP)/src/mp/mp_bh.c \
 	$(BDB_TOP)/src/mp/mp_fget.c \
 	$(BDB_TOP)/src/mp/mp_fmethod.c \
@@ -176,6 +181,7 @@ LOCAL_SRC_FILES := \
 	$(BDB_TOP)/src/os/os_map.c \
 	$(BDB_TOP)/src/os/os_mkdir.c \
 	$(BDB_TOP)/src/os/os_open.c \
+	$(BDB_TOP)/src/os/os_path.c \
 	$(BDB_TOP)/src/os/os_pid.c \
 	$(BDB_TOP)/src/os/os_rename.c \
 	$(BDB_TOP)/src/os/os_root.c \
@@ -217,10 +223,6 @@ endif
 # SQLITE_DEFAULT_PAGE_SIZE -- explicit control over page size for cache 
 #  and databases
 # SQLITE_DEFAULT_CACHE_SIZE -- sizes the BDB cache, in pages
-# BDBSQL_MAX_LOCKERS -- number of lockers (only change if errors occur)
-# BDBSQL_MAX_LOCKS -- number of locks (only change if errors occur)
-# BDBSQL_MAX_LOCK_OBJECTS -- number of lock objects (only change if 
-#  errors occur)
 # BDBSQL_SHARE_PRIVATE -- uses private environments but still shares databases
 #  among processes using external synchronization.
 # BDBSQL_CONVERT_SQLITE -- define this to convert SQLite databases to BDB SQL
@@ -229,9 +231,6 @@ endif
 #
 LOCAL_CFLAGS += -Wall -DHAVE_USLEEP=1 \
 	-DSQLITE_DEFAULT_PAGE_SIZE=4096 \
-	-DBDBSQL_MAX_LOCKERS=100 \
-	-DBDBSQL_MAX_LOCK_OBJECTS=1000 \
-	-DBDBSQL_MAX_LOCKS=1000 \
 	-DBDBSQL_SHARE_PRIVATE=1 \
 	-DSQLITE_DEFAULT_JOURNAL_SIZE_LIMIT=524288 \
 	-DSQLITE_DEFAULT_CACHE_SIZE=128 \

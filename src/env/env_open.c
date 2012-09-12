@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -85,11 +85,11 @@ __env_open_pp(dbenv, db_home, flags, mode)
 
 #undef	OKFLAGS
 #define	OKFLAGS								\
-	(DB_CREATE | DB_INIT_CDB | DB_INIT_LOCK | DB_INIT_LOG |		\
-	DB_INIT_MPOOL | DB_INIT_REP | DB_INIT_TXN | DB_LOCKDOWN |	\
-	DB_PRIVATE | DB_RECOVER | DB_RECOVER_FATAL | DB_REGISTER |	\
-	DB_SYSTEM_MEM | DB_THREAD | DB_USE_ENVIRON | DB_FAILCHK |	\
-	DB_USE_ENVIRON_ROOT | DB_NO_CHECKPOINT)
+	(DB_CREATE | DB_FAILCHK | DB_FAILCHK_ISALIVE | DB_INIT_CDB |	\
+	DB_INIT_LOCK | DB_INIT_LOG | DB_INIT_MPOOL | DB_INIT_REP |	\
+	DB_INIT_TXN | DB_LOCKDOWN | DB_NO_CHECKPOINT | DB_PRIVATE |	\
+	DB_RECOVER | DB_RECOVER_FATAL | DB_REGISTER | DB_SYSTEM_MEM |	\
+	DB_THREAD | DB_USE_ENVIRON | DB_USE_ENVIRON_ROOT)
 #undef	OKFLAGS_CDB
 #define	OKFLAGS_CDB							\
 	(DB_CREATE | DB_INIT_CDB | DB_INIT_MPOOL | DB_LOCKDOWN |	\
@@ -101,6 +101,15 @@ __env_open_pp(dbenv, db_home, flags, mode)
 	if ((ret = __db_fcchk(
 	    env, "DB_ENV->open", flags, DB_INIT_CDB, ~OKFLAGS_CDB)) != 0)
 		return (ret);
+
+#if defined(HAVE_MIXED_SIZE_ADDRESSING) && (SIZEOF_CHAR_P == 8)
+	if (F_ISSET(env, DB_PRIVATE)) {
+		__db_errx(env, DB_STR("1589", "DB_PRIVATE is not "
+			    "supported by 64-bit applications in "
+			    "mixed-size-addressing mode"));
+			return (EINVAL);
+		}
+#endif
 
 	return (__env_open(dbenv, db_home, flags, mode));
 }
@@ -149,13 +158,26 @@ __env_open(dbenv, db_home, flags, mode)
 	 * thing we do.
 	 */
 	if (LF_ISSET(DB_REGISTER)) {
+		/*
+		 * Through the SQL interface (btree.c) we set
+		 * DB_FAILCHK_ISALIVE.  When set, we want to run failchk
+		 * if a recovery is needed. Set up the infrastructure to run
+		 * it.   SQL applications have no way to specify the thread
+		 * count or an isalive, so force it here. Failchk is run
+		 * inside of register code.
+		 */
+		if (LF_ISSET(DB_FAILCHK_ISALIVE)) {
+			(void)__env_set_thread_count(dbenv, 50);
+			dbenv->is_alive = __envreg_isalive;
+		}
+
 		if ((ret =
 		    __envreg_register(env, &register_recovery, flags)) != 0)
 			goto err;
 		if (register_recovery) {
 			if (!LF_ISSET(DB_RECOVER)) {
-				__db_errx(env,
-	    "The DB_RECOVER flag was not specified, and recovery is needed");
+				__db_errx(env, DB_STR("1567",
+	    "The DB_RECOVER flag was not specified, and recovery is needed"));
 				ret = DB_RUNRECOVERY;
 				goto err;
 			}
@@ -174,7 +196,7 @@ __env_open(dbenv, db_home, flags, mode)
 	 * We don't care if the current environment was private or not, we
 	 * want to remove files left over for any reason, from any session.
 	 */
-	if (LF_ISSET(DB_RECOVER | DB_RECOVER_FATAL))
+retry:	if (LF_ISSET(DB_RECOVER | DB_RECOVER_FATAL))
 #ifdef HAVE_REPLICATION
 		if ((ret = __rep_reset_init(env)) != 0 ||
 		    (ret = __env_remove_env(env)) != 0 ||
@@ -187,7 +209,11 @@ __env_open(dbenv, db_home, flags, mode)
 	if ((ret = __env_attach_regions(dbenv, flags, orig_flags, 1)) != 0)
 		goto err;
 
-	/* after attached to env, run failchk if not doing register recovery */
+	/*
+	 * After attached to env, run failchk if not doing register
+	 * recovery.  Not providing this option with the DB_FAILCHK_ISALIVE
+	 * flag.
+	 */
 	if (LF_ISSET(DB_FAILCHK) && !register_recovery) {
 		ENV_ENTER(env, ip);
 		if ((ret = __env_failchk_int(dbenv)) != 0)
@@ -212,6 +238,19 @@ err:	if (ret != 0)
 			(void)__envreg_unregister(env, 1);
 	}
 
+	/*
+	 * If the open is called with DB_REGISTER we can potentially skip
+	 * running recovery on a panicked environment. We can't check the panic
+	 * bit earlier since checking requires opening the environment.
+	 * Only retry if DB_RECOVER was specified - the register_recovery flag
+	 * indicates that.
+	 */
+	if (ret == DB_RUNRECOVERY && !register_recovery &&
+	    !LF_ISSET(DB_RECOVER) && LF_ISSET(DB_REGISTER)) {
+		LF_SET(DB_RECOVER);
+		goto retry;
+	}
+
 	return (ret);
 }
 
@@ -232,16 +271,16 @@ __env_open_arg(dbenv, flags)
 
 	if (LF_ISSET(DB_REGISTER)) {
 		if (!__os_support_db_register()) {
-			__db_errx(env,
-	    "Berkeley DB library does not support DB_REGISTER on this system");
+			__db_errx(env, DB_STR("1568",
+	    "Berkeley DB library does not support DB_REGISTER on this system"));
 			return (EINVAL);
 		}
 		if ((ret = __db_fcchk(env, "DB_ENV->open", flags,
 		    DB_PRIVATE, DB_REGISTER | DB_SYSTEM_MEM)) != 0)
 			return (ret);
 		if (LF_ISSET(DB_CREATE) && !LF_ISSET(DB_INIT_TXN)) {
-			__db_errx(
-			    env, "registration requires transaction support");
+			__db_errx(env, DB_STR("1569",
+			    "registration requires transaction support"));
 			return (EINVAL);
 		}
 	}
@@ -251,18 +290,18 @@ __env_open_arg(dbenv, flags)
 	 */
 	if (LF_ISSET(DB_INIT_REP) && LF_ISSET(DB_CREATE)) {
 		if (!__os_support_replication()) {
-			__db_errx(env,
-	    "Berkeley DB library does not support replication on this system");
+			__db_errx(env, DB_STR("1570",
+	    "Berkeley DB library does not support replication on this system"));
 			return (EINVAL);
 		}
 		if (!LF_ISSET(DB_INIT_LOCK)) {
-			__db_errx(env,
-			    "replication requires locking support");
+			__db_errx(env, DB_STR("1571",
+			    "replication requires locking support"));
 			return (EINVAL);
 		}
 		if (!LF_ISSET(DB_INIT_TXN)) {
-			__db_errx(
-			    env, "replication requires transaction support");
+			__db_errx(env, DB_STR("1572",
+			    "replication requires transaction support"));
 			return (EINVAL);
 		}
 	}
@@ -274,24 +313,25 @@ __env_open_arg(dbenv, flags)
 		    "DB_ENV->open", flags, DB_REGISTER, DB_RECOVER_FATAL)) != 0)
 			return (ret);
 		if (!LF_ISSET(DB_CREATE)) {
-			__db_errx(env, "recovery requires the create flag");
+			__db_errx(env, DB_STR("1573",
+			    "recovery requires the create flag"));
 			return (EINVAL);
 		}
 		if (!LF_ISSET(DB_INIT_TXN)) {
-			__db_errx(
-			    env, "recovery requires transaction support");
+			__db_errx(env, DB_STR("1574",
+			    "recovery requires transaction support"));
 			return (EINVAL);
 		}
 	}
 	if (LF_ISSET(DB_FAILCHK)) {
 		if (!ALIVE_ON(env)) {
-			__db_errx(env,
-			 "DB_FAILCHK requires DB_ENV->is_alive be configured");
+			__db_errx(env, DB_STR("1575",
+		    "DB_FAILCHK requires DB_ENV->is_alive be configured"));
 			return (EINVAL);
 		}
 		if (dbenv->thr_max == 0) {
-			__db_errx(env,
-		 "DB_FAILCHK requires DB_ENV->set_thread_count be configured");
+			__db_errx(env, DB_STR("1576",
+	    "DB_FAILCHK requires DB_ENV->set_thread_count be configured"));
 			return (EINVAL);
 		}
 	}
@@ -303,8 +343,8 @@ __env_open_arg(dbenv, flags)
 	 * the full pthreads API, and our only alternative is test-and-set.
 	 */
 	if (!LF_ISSET(DB_PRIVATE)) {
-		__db_errx(env,
-	 "Berkeley DB library configured to support only private environments");
+		__db_errx(env, DB_STR("1577",
+    "Berkeley DB library configured to support only private environments"));
 		return (EINVAL);
 	}
 #endif
@@ -328,8 +368,8 @@ __env_open_arg(dbenv, flags)
 	 * process, including all its threads.
 	 */
 	if (F_ISSET(env, ENV_THREAD)) {
-		__db_errx(env,
-	    "architecture lacks fast mutexes: applications cannot be threaded");
+		__db_errx(env, DB_STR("1578",
+    "architecture lacks fast mutexes: applications cannot be threaded"));
 		return (EINVAL);
 	}
 #endif
@@ -419,8 +459,12 @@ __env_config(dbenv, db_home, flagsp, mode)
 		 * home set to NULL if __os_getenv failed to find DB_HOME.
 		 */
 	}
-	if (home != NULL && (ret = __os_strdup(env, home, &env->db_home)) != 0)
-		return (ret);
+	if (home != NULL) {
+		if (env->db_home != NULL)
+			__os_free(env, env->db_home);
+		if ((ret = __os_strdup(env, home, &env->db_home)) != 0)
+			return (ret);
+	}
 
 	/* Save a copy of the DB_ENV->open method flags. */
 	env->open_flags = flags;
@@ -502,12 +546,12 @@ __env_close_pp(dbenv, flags)
 				F_CLR(dbenv, DB_ENV_NOPANIC);
 		}
 
-		/* Close all underlying file handles. */
-		(void)__file_handle_cleanup(env);
-
 		/* Close all underlying threads and sockets. */
 		if (IS_ENV_REPLICATED(env))
 			(void)__repmgr_close(env);
+
+		/* Close all underlying file handles. */
+		(void)__file_handle_cleanup(env);
 
 		PANIC_CHECK(env);
 	}
@@ -579,6 +623,13 @@ __env_close(dbenv, flags)
 	 */
 	while ((dbp = TAILQ_FIRST(&env->dblist)) != NULL) {
 		/*
+		 * Do not close the handle on a database partition, since it
+		 * will be closed when closing the handle on the main database.
+		 */
+		while (dbp != NULL && F_ISSET(dbp, DB_AM_PARTDB))
+			dbp = TAILQ_NEXT(dbp, dblistlinks);
+		DB_ASSERT(env, dbp != NULL);
+		/*
 		 * Note down and ignore the error code. Since we can't do
 		 * anything about the dbp handle anyway if the close
 		 * operation fails. But we want to return the error to the
@@ -626,6 +677,9 @@ __env_close(dbenv, flags)
 	if (dbenv->db_tmp_dir != NULL)
 		__os_free(env, dbenv->db_tmp_dir);
 	dbenv->db_tmp_dir = NULL;
+	if (dbenv->db_md_dir != NULL)
+		__os_free(env, dbenv->db_md_dir);
+	dbenv->db_md_dir = NULL;
 	if (dbenv->db_data_dir != NULL) {
 		for (p = dbenv->db_data_dir; *p != NULL; ++p)
 			__os_free(env, *p);
@@ -638,6 +692,11 @@ __env_close(dbenv, flags)
 	if (env->db_home != NULL) {
 		__os_free(env, env->db_home);
 		env->db_home = NULL;
+	}
+
+	if (env->backup_handle != NULL) {
+		__os_free(env, env->backup_handle);
+		env->backup_handle = NULL;
 	}
 
 	/* Discard the structure. */
@@ -718,10 +777,11 @@ __env_refresh(dbenv, orig_flags, rep_check)
 	 * handles.
 	 */
 	if (env->db_ref != 0) {
-		__db_errx(env,
-		    "Database handles still open at environment close");
+		__db_errx(env, DB_STR("1579",
+		    "Database handles still open at environment close"));
 		TAILQ_FOREACH(ldbp, &env->dblist, dblistlinks)
-			__db_errx(env, "Open database handle: %s%s%s",
+			__db_errx(env, DB_STR_A("1580",
+			    "Open database handle: %s%s%s", "%s %s %s"),
 			    ldbp->fname == NULL ? "unnamed" : ldbp->fname,
 			    ldbp->dname == NULL ? "" : "/",
 			    ldbp->dname == NULL ? "" : ldbp->dname);
@@ -850,11 +910,6 @@ __env_refresh(dbenv, orig_flags, rep_check)
 		 */
 	}
 
-	if (env->mutex_iq != NULL) {
-		__os_free(env, env->mutex_iq);
-		env->mutex_iq = NULL;
-	}
-
 	if (env->recover_dtab.int_dispatch != NULL) {
 		__os_free(env, env->recover_dtab.int_dispatch);
 		env->recover_dtab.int_size = 0;
@@ -885,9 +940,11 @@ __file_handle_cleanup(env)
 	if (TAILQ_FIRST(&env->fdlist) == NULL)
 		return (0);
 
-	__db_errx(env, "File handles still open at environment close");
+	__db_errx(env, DB_STR("1581",
+	    "File handles still open at environment close"));
 	while ((fhp = TAILQ_FIRST(&env->fdlist)) != NULL) {
-		__db_errx(env, "Open file handle: %s", fhp->name);
+		__db_errx(env, DB_STR_A("1582", "Open file handle: %s", "%s"),
+		    fhp->name);
 		(void)__os_closehandle(env, fhp);
 	}
 	return (EINVAL);
@@ -948,18 +1005,6 @@ __env_attach_regions(dbenv, flags, orig_flags, retry_ok)
 		F_SET(env, ENV_SYSTEM_MEM);
 	if (LF_ISSET(DB_THREAD))
 		F_SET(env, ENV_THREAD);
-
-	/*
-	 * Flags saved in the init_flags field of the environment, representing
-	 * flags to DB_ENV->set_flags and DB_ENV->open that need to be set.
-	 */
-#define	DB_INITENV_CDB		0x0001	/* DB_INIT_CDB */
-#define	DB_INITENV_CDB_ALLDB	0x0002	/* DB_INIT_CDB_ALLDB */
-#define	DB_INITENV_LOCK		0x0004	/* DB_INIT_LOCK */
-#define	DB_INITENV_LOG		0x0008	/* DB_INIT_LOG */
-#define	DB_INITENV_MPOOL	0x0010	/* DB_INIT_MPOOL */
-#define	DB_INITENV_REP		0x0020	/* DB_INIT_REP */
-#define	DB_INITENV_TXN		0x0040	/* DB_INIT_TXN */
 
 	/*
 	 * Create/join the environment.  We pass in the flags of interest to
@@ -1041,7 +1086,7 @@ __env_attach_regions(dbenv, flags, orig_flags, retry_ok)
 	 */
 	if ((ret = __mutex_open(env, create_ok)) != 0)
 		goto err;
-	/* The MUTEX_REQUIRED() in __env_alloc() expectes this to be set. */
+	/* The MUTEX_REQUIRED() in __env_alloc() expects this to be set. */
 	infop->mtx_alloc = ((REGENV *)infop->primary)->mtx_regenv;
 #endif
 	/*
@@ -1078,7 +1123,6 @@ __env_attach_regions(dbenv, flags, orig_flags, retry_ok)
 	 */
 	if (LF_ISSET(DB_INIT_REP) && (ret = __rep_open(env)) != 0)
 		goto err;
-	infop->mtx_alloc = ((REGENV *)infop->primary)->mtx_regenv;
 
 	rep_check = IS_ENV_REPLICATED(env) ? 1 : 0;
 	if (rep_check && (ret = __env_rep_enter(env, 0)) != 0)
@@ -1136,14 +1180,14 @@ __env_attach_regions(dbenv, flags, orig_flags, retry_ok)
 	 * atomicity guarantees, but not necessarily need concurrency.
 	 */
 	if (LF_ISSET(DB_INIT_LOG | DB_INIT_TXN))
-		if ((ret = __log_open(env, create_ok)) != 0)
+		if ((ret = __log_open(env)) != 0)
 			goto err;
 	if (LF_ISSET(DB_INIT_LOCK))
-		if ((ret = __lock_open(env, create_ok)) != 0)
+		if ((ret = __lock_open(env)) != 0)
 			goto err;
 
 	if (LF_ISSET(DB_INIT_TXN)) {
-		if ((ret = __txn_open(env, create_ok)) != 0)
+		if ((ret = __txn_open(env)) != 0)
 			goto err;
 
 		/*

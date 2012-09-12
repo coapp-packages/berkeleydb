@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2000, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2000, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -15,7 +15,7 @@ proc sdb010 { method args } {
 
 	puts "Subdb010: Test of DB->remove() and DB->truncate"
 
-	if { [is_queue $method] == 1 } {
+       if { [is_queue $method] == 1 || [is_heap $method] == 1 } {
 		puts "\tSubdb010: Skipping for method $method."
 		return
 	}

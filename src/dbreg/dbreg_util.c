@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1997, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1997, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -101,6 +101,7 @@ __dbreg_log_files(env, opcode)
 	DB_LSN r_unused;
 	FNAME *fnp;
 	LOG *lp;
+	u_int32_t lopcode;
 	int ret;
 
 	dblp = env->lg_handle;
@@ -133,9 +134,12 @@ __dbreg_log_files(env, opcode)
 		 * For this we output DBREG_RCLOSE records so the files will be
 		 * closed on the forward pass.
 		 */
+		lopcode = opcode;
+		if ( opcode == DBREG_CHKPNT && F_ISSET(fnp, DBREG_EXCL))
+			lopcode = DBREG_XCHKPNT;
 		if ((ret = __dbreg_register_log(env, NULL, &r_unused,
 		    F_ISSET(fnp, DB_FNAME_DURABLE) ? 0 : DB_LOG_NOT_DURABLE,
-		    opcode | F_ISSET(fnp, DB_FNAME_DBREG_MASK),
+		    lopcode | F_ISSET(fnp, DB_FNAME_DBREG_MASK),
 		    dbtp, &fid_dbt, fnp->id, fnp->s_type, fnp->meta_pgno,
 		    TXN_INVALID)) != 0)
 			break;
@@ -146,6 +150,23 @@ __dbreg_log_files(env, opcode)
 	return (ret);
 }
 
+/*
+ * __dbreg_log_nofiles --
+ *
+ * PUBLIC: int __dbreg_log_nofiles __P((ENV *));
+ */
+int
+__dbreg_log_nofiles(env)
+	ENV *env;
+{
+	DB_LOG *dblp;
+	LOG *lp;
+
+	dblp = env->lg_handle;
+	lp = dblp->reginfo.primary;
+
+	return (SH_TAILQ_EMPTY(&lp->fq));
+}
 /*
  * __dbreg_close_files --
  *	Remove the id's of open files and actually close those
@@ -423,7 +444,7 @@ __dbreg_id_to_db(env, txn, dbpp, ndx, tryopen)
 		goto err;
 	}
 
-	/* It's an error if we don't have a corresponding writeable DB. */
+	/* It's an error if we don't have a corresponding writable DB. */
 	if ((*dbpp = dblp->dbentry[ndx].dbp) == NULL)
 		ret = ENOENT;
 	else
@@ -614,11 +635,15 @@ retry_inmem:
 		goto skip_open;
 	}
 
-	if (opcode == DBREG_REOPEN || try_inmem) {
+	if (opcode == DBREG_REOPEN || opcode == DBREG_XREOPEN || try_inmem) {
 		MAKE_INMEM(dbp);
 		fname = NULL;
 		dname = name;
 	}
+
+	if (opcode == DBREG_XOPEN || opcode == DBREG_XCHKPNT ||
+	    opcode == DBREG_XREOPEN)
+		F2_SET(dbp, DB2_AM_EXCL|DB2_AM_INTEXCL);
 
 	if ((ret = __db_open(dbp, NULL, txn, fname, dname, ftype,
 	    DB_DURABLE_UNKNOWN | DB_ODDFILESIZE,
@@ -675,7 +700,8 @@ err:		if (cstat == TXN_UNEXPECTED)
 		 * handling those cases specially, above.
 		 */
 		if (try_inmem == 0 &&
-		    opcode != DBREG_PREOPEN && opcode != DBREG_REOPEN) {
+		    opcode != DBREG_PREOPEN && opcode != DBREG_REOPEN && 
+		    opcode != DBREG_XREOPEN) {
 			if ((ret = __db_close(dbp, NULL, DB_NOSYNC)) != 0)
 				return (ret);
 			try_inmem = 1;
@@ -695,10 +721,11 @@ err:		if (cstat == TXN_UNEXPECTED)
 		 * If this is file is missing then we may have crashed
 		 * without writing the corresponding close, record
 		 * the open so recovery will write a close record
-		 * with its checkpoint.
+		 * with its checkpoint. If this is a backward pass then
+		 * we are closing a non-existent file and need to mark
+		 * it as deleted.
 		 */
-		if ((opcode == DBREG_CHKPNT || opcode == DBREG_OPEN) &&
-		    dbp->log_filename == NULL &&
+		if (dbp->log_filename == NULL &&
 		    (ret = __dbreg_setup(dbp, name, NULL, id)) != 0)
 			return (ret);
 		ret = __dbreg_assign_id(dbp, ndx, 1);
@@ -790,7 +817,7 @@ __dbreg_lazy_id(dbp)
 	if (fnp->old_id != DB_LOGFILEID_INVALID &&
 	    (ret = __dbreg_revoke_id(dbp, 1, DB_LOGFILEID_INVALID)) != 0)
 		goto err;
-	if ((ret = __txn_begin(env, NULL, NULL, &txn, 0)) != 0)
+	if ((ret = __txn_begin(env, NULL, NULL, &txn, DB_IGNORE_LEASE)) != 0)
 		goto err;
 
 	if ((ret = __dbreg_get_id(dbp, txn, &id)) != 0) {

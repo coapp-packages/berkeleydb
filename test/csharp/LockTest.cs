@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -20,6 +20,7 @@ namespace CsharpAPITest {
     {
         DatabaseEnvironment testLockStatsEnv;
         BTreeDatabase testLockStatsDb;
+        int DeadlockDidPut = 0;
 
         [TestFixtureSetUp]
         public void SetUpTestFixture() {
@@ -60,6 +61,12 @@ namespace CsharpAPITest {
             // Get and confirm locking subsystem statistics.
             LockStats stats = env.LockingSystemStats();
             env.PrintLockingSystemStats(true, true);
+            Assert.AreEqual(0, stats.AllocatedLockers);
+            Assert.AreNotEqual(0, stats.AllocatedLocks);
+            Assert.AreNotEqual(0, stats.AllocatedObjects);
+            Assert.AreEqual(0, stats.InitLockers);
+            Assert.AreNotEqual(0, stats.InitLocks);
+            Assert.AreNotEqual(0, stats.InitObjects);
             Assert.AreEqual(0, stats.LastAllocatedLockerID);
             Assert.AreEqual(0, stats.LockConflictsNoWait);
             Assert.AreEqual(0, stats.LockConflictsWait);
@@ -100,6 +107,7 @@ namespace CsharpAPITest {
             Assert.Less(0, stats.RegionNoWait);
             Assert.AreNotEqual(0, stats.RegionSize);
             Assert.AreEqual(0, stats.RegionWait);
+            Assert.AreNotEqual(0, stats.TableSize);
             Assert.AreEqual(2000, stats.TxnTimeoutLength);
             Assert.AreEqual(0, stats.TxnTimeouts);
 
@@ -117,20 +125,21 @@ namespace CsharpAPITest {
             testLockStatsEnv = env;
             testLockStatsDb = db;
 
-            Thread thread1 = new Thread(new ThreadStart(Read));
-            Thread thread2 = new Thread(new ThreadStart(Write));
-            thread1.Start();
-            Thread.Sleep(1000);
-            thread2.Start();
-            thread1.Join();
-            thread2.Join();
+            // Use some locks, to ensure  the stats work when populated.
+            txn = testLockStatsEnv.BeginTransaction();
+            for (int i = 0; i < 500; i++)
+            {
+                testLockStatsDb.Put(
+                    new DatabaseEntry(BitConverter.GetBytes(i)),
+                    new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(
+                    Configuration.RandomString(i))), txn);
+                testLockStatsDb.Sync();
+            }
+            txn.Commit();
 
             env.PrintLockingSystemStats();
             stats = env.LockingSystemStats();
             Assert.Less(0, stats.LastAllocatedLockerID);
-            Assert.Less(0, stats.LockConflictsNoWait);
-            Assert.LessOrEqual(0, stats.LockConflictsWait);
-            Assert.LessOrEqual(0, stats.LockDeadlocks);
             Assert.Less(0, stats.LockDowngrades);
             Assert.LessOrEqual(0, stats.LockerNoWait);
             Assert.Less(0, stats.Lockers);
@@ -152,7 +161,7 @@ namespace CsharpAPITest {
             Assert.LessOrEqual(0, stats.MaxPartitionLockNoWait);
             Assert.LessOrEqual(0, stats.MaxPartitionLockWait);
             Assert.Less(0, stats.MaxUnusedID);
-            Assert.Less(0, stats.ObjectNoWait);
+            Assert.LessOrEqual(0, stats.ObjectNoWait);
             Assert.Less(0, stats.Objects);
             Assert.LessOrEqual(0, stats.ObjectSteals);
             Assert.LessOrEqual(0, stats.ObjectWait);
@@ -160,35 +169,54 @@ namespace CsharpAPITest {
             Assert.LessOrEqual(0, stats.PartitionLockWait);
             Assert.Less(0, stats.RegionNoWait);
             Assert.LessOrEqual(0, stats.RegionWait);
-            Assert.Less(0, stats.TxnTimeouts);
+            Assert.LessOrEqual(0, stats.TxnTimeouts);
+
+            // Force a deadlock to ensure the stats work.
+            txn = testLockStatsEnv.BeginTransaction();
+            testLockStatsDb.Put(new DatabaseEntry(BitConverter.GetBytes(10)),
+                new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(
+                Configuration.RandomString(200))), txn);
+
+            Thread thread1 = new Thread(GenerateDeadlock);
+            thread1.Start();
+            while (DeadlockDidPut == 0)
+                Thread.Sleep(10);
+
+            try
+            {
+                testLockStatsDb.Get(new DatabaseEntry(
+                    BitConverter.GetBytes(100)), txn);
+            }
+            catch (DeadlockException) { }
+            // Abort unconditionally - we don't care about the transaction
+            txn.Abort();
+            thread1.Join();
+
+            stats = env.LockingSystemStats();
+            Assert.Less(0, stats.LockConflictsNoWait);
+            Assert.LessOrEqual(0, stats.LockConflictsWait);
 
             db.Close(); 
             env.Close();
         }
 
-        public void Read() {
+        public void GenerateDeadlock()
+        {
             Transaction txn = testLockStatsEnv.BeginTransaction();
-            for (int i = 0; i < 200; i++) {
-                testLockStatsDb.Put(new DatabaseEntry(BitConverter.GetBytes(i)),
+            try
+            {
+                testLockStatsDb.Put(
+                    new DatabaseEntry(BitConverter.GetBytes(100)),
                     new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(
-                    Configuration.RandomString(i))), txn);
-                testLockStatsDb.Sync();
-            }
-            txn.Commit();
-        }
+                    Configuration.RandomString(200))), txn);
+                DeadlockDidPut = 1;
+                testLockStatsDb.Get(new DatabaseEntry(
+                BitConverter.GetBytes(10)), txn);
 
-        public void Write() {
-            Transaction txn = testLockStatsEnv.BeginTransaction();
-            for (int i = 0; i < 200; ) {
-                try {
-                    testLockStatsDb.Get(new DatabaseEntry(
-                        BitConverter.GetBytes(i)), txn);
-                    i++;
-                } catch (DeadlockException) {
-                    Thread.Sleep(500);
-                }
             }
-            txn.Commit();
+            catch (DeadlockException) { }
+            // Abort unconditionally - we don't care about the transaction
+            txn.Abort();
         }
 
         public static void LockingEnvSetUp(string testHome,

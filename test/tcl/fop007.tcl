@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -14,7 +14,7 @@ proc fop007 { method args } {
 		puts "Skipping fop007 for method $method."
 		return
 	}
-	eval {fop001 $method 1} $args
+	eval {fop001 $method 1 0} $args
 }
 
 

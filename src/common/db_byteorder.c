@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -55,8 +55,8 @@ __db_byteorder(env, lorder)
 			return (DB_SWAPBYTES);
 		break;
 	default:
-		__db_errx(env,
-	    "unsupported byte order, only big and little-endian supported");
+		__db_errx(env, DB_STR("0041",
+	    "unsupported byte order, only big and little-endian supported"));
 		return (EINVAL);
 	}
 	return (0);

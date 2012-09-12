@@ -3,22 +3,22 @@
 %%% a test (though it could be more generally anything).
 
 -module(manager).
--export([start/1,accept_loop/1,recv_loop/1]).
+-export([start/2,accept_loop/2,recv_loop/2]).
 -import(gen_tcp, [listen/2, accept/1, recv/2, send/2]).
 -import(string, [cspan/2, substr/3]).
 
-start(Port) ->
+start(Port, Config) ->
     {ok, LSock} = listen(Port, [{packet,line},
                                 {active,false},{reuseaddr,true}]),
-    Pid = spawn(?MODULE, accept_loop, [LSock]),
+    Pid = spawn(?MODULE, accept_loop, [LSock, Config]),
     ok = gen_tcp:controlling_process(LSock, Pid).
 
-accept_loop(LSock) ->
+accept_loop(LSock, Config) ->
     {ok, Sock} = accept(LSock),
-    spawn(?MODULE, recv_loop, [Sock]),
-    accept_loop(LSock).
+    spawn(?MODULE, recv_loop, [Sock, Config]),
+    accept_loop(LSock, Config).
 
-recv_loop(Sock) ->
+recv_loop(Sock, Config) ->
     case recv(Sock, 0) of
         {ok, Msg} ->
             %%
@@ -30,18 +30,25 @@ recv_loop(Sock) ->
             {ok,Tokens,_} = erl_scan:string(ValidInput),
             {ok, Result} = erl_parse:parse_term(Tokens),
             case Result of
-                {Path, shutdown} ->
-                    %%
-                    %% TODO: I think maybe instead of this, the path_mgr should be told
-                    %% to do the actual socket closing.  Then we wouldn't even need
-                    %% the registry to know about the sockets at all.
-                    %% 
-                    {ok, {_,_,PathSock,PathFwdSock,_}} = registry:lookup(Path),
-                    gen_tcp:close(PathSock),
-                    gen_tcp:close(PathFwdSock);
+                {init, Path, Opt} ->
+                    {ok, Num} = optstore:install(Path, Opt),
+                    send(Sock, integer_to_list(Num)),
+                    send(Sock, "\r\n");
+
+                {Path, Command} when is_tuple(Path) ->
+                    Pids = registry:lookup(Path),
+                    lists:foreach(fun(Pid) -> Pid ! Command end, Pids);
                 shutdown ->
                     send(Sock, "ok\r\n"),
                     halt();                     % first try is rather crude
+                {config,Real} ->
+                    send(Sock,
+                         integer_to_list(
+                           case lists:keysearch(Real, 2, Config) of
+                               {value,{Spoof,Real}} -> Spoof;
+                               false -> Real
+                           end)),
+                    send(Sock, "\r\n");
                 list ->
                     lists:foreach(fun ({Id,Path,_,_,_}) ->
                                           {From,To} = Path,
@@ -52,9 +59,6 @@ recv_loop(Sock) ->
                                           send(Sock, integer_to_list(To)),
                                           send(Sock, "}\r\n")
                                   end, registry:all());
-                {Path, Command} ->
-                    {ok, {_,_,_,_,Process}} = registry:lookup(Path),
-                    path_mgr:update(Process, Path, Command);
 
                 Command ->
                     %%
@@ -70,7 +74,7 @@ recv_loop(Sock) ->
                                   DistinctPids)
             end,
             send(Sock, "ok\r\n"),
-            recv_loop(Sock);
+            recv_loop(Sock, Config);
         {error,closed} ->
             ok
     end.

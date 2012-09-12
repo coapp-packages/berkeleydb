@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -117,14 +117,13 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
                         BTreeDatabase db = BTreeDatabase.Open(btreeDBName, cfg);
                         DatabaseEntry key, data;
                         char[] keyData = { 'A', 'A', 'A', 'A' };
-                        byte[] dataData = new byte[20];
-                        Random generator = new Random();
+                        data = new DatabaseEntry(
+                                ASCIIEncoding.ASCII.GetBytes("abcdefghij"));
                         int i;
-                        for (i = 0; i < 20000; i++) {
+                        for (i = 0; i < 2000; i++) {
                                 // Write random data
-                                key = new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(keyData));
-                                generator.NextBytes(dataData);
-                                data = new DatabaseEntry(dataData);
+                                key = new DatabaseEntry(
+                                        ASCIIEncoding.ASCII.GetBytes(keyData));
                                 db.Put(key, data);
 
                                 // Bump the key. Rollover from Z to A if necessary
@@ -142,7 +141,7 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
                     DatabaseEntry key, DatabaseEntry data, ref byte[] dest, out int size) {
                         /* 
                          * Just a dummy function that doesn't do any compression.  It just
-                         * writes the 5 byte key and 20 byte data to the buffer.
+                         * writes the 5 byte key and 10 byte data to the buffer.
                          */
                         size = key.Data.Length + data.Data.Length;
                         if (size > dest.Length)
@@ -155,15 +154,20 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
                 KeyValuePair<DatabaseEntry, DatabaseEntry> decompress(
                     DatabaseEntry prevKey, DatabaseEntry prevData, byte[] compressed, out uint bytesRead) {
                         byte[] keyData = new byte[4];
-                        byte[] dataData = new byte[20];
+                        byte[] dataData = new byte[10];
                         Array.ConstrainedCopy(compressed, 0, keyData, 0, 4);
-                        Array.ConstrainedCopy(compressed, 4, dataData, 0, 20);
+                        Array.ConstrainedCopy(compressed, 4, dataData, 0, 10);
                         DatabaseEntry key = new DatabaseEntry(keyData);
                         DatabaseEntry data = new DatabaseEntry(dataData);
                         bytesRead = (uint)(key.Data.Length + data.Data.Length);
                         return new KeyValuePair<DatabaseEntry, DatabaseEntry>(key, data);
                 }
 
+                /*
+                 * Test the default compression - which is prefix compression
+                 * of keys. This should work well with ordered keys and short
+                 * data items.
+                 */
                 [Test]
                 public void TestCompressionDefault() {
                         testName = "TestCompressionDefault";
@@ -175,17 +179,16 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
                         BTreeDatabase db = BTreeDatabase.Open(btreeDBName, cfg);
                         DatabaseEntry key, data;
                         char[] keyData = { 'A', 'A', 'A', 'A' };
-                        byte[] dataData = new byte[20];
-                        Random generator = new Random();
+                        data = new DatabaseEntry(
+                                ASCIIEncoding.ASCII.GetBytes("A"));
                         int i;
-                        for (i = 0; i < 20000; i++) {
+                        for (i = 0; i < 5000; i++) {
                                 // Write random data
-                                key = new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(keyData));
-                                generator.NextBytes(dataData);
-                                data = new DatabaseEntry(dataData);
+                                key = new DatabaseEntry(
+                                        ASCIIEncoding.ASCII.GetBytes(keyData));
                                 db.Put(key, data);
 
-                                // Bump the key. Rollover from Z to A if necessary
+                                // Bump the key.
                                 int j = keyData.Length;
                                 do {
                                         j--;
@@ -197,21 +200,22 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 
                         FileInfo dbInfo = new FileInfo(btreeDBName);
                         long uncompressedSize = dbInfo.Length;
-			Configuration.ClearDir(testHome);
+                        Configuration.ClearDir(testHome);
 
                         cfg = new BTreeDatabaseConfig();
                         cfg.Creation = CreatePolicy.ALWAYS;
                         cfg.SetCompression();
                         db = BTreeDatabase.Open(btreeDBName, cfg);
                         keyData = new char[]{ 'A', 'A', 'A', 'A' };
-                        for (i = 0; i < 20000; i++) {
+                        data = new DatabaseEntry(
+                                ASCIIEncoding.ASCII.GetBytes("A"));
+                        for (i = 0; i < 5000; i++) {
                                 // Write random data
-                                key = new DatabaseEntry(ASCIIEncoding.ASCII.GetBytes(keyData));
-                                generator.NextBytes(dataData);
-                                data = new DatabaseEntry(dataData);
+                                key = new DatabaseEntry(
+                                        ASCIIEncoding.ASCII.GetBytes(keyData));
                                 db.Put(key, data);
 
-                                // Bump the key. Rollover from Z to A if necessary
+                                // Bump the key.
                                 int j = keyData.Length;
                                 do {
                                         j--;
@@ -220,7 +224,8 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
                                 } while (keyData[j] == 'A');
                         }
                         Cursor dbc = db.Cursor();
-                        foreach (KeyValuePair<DatabaseEntry, DatabaseEntry> kvp in dbc) 
+                        foreach (KeyValuePair<DatabaseEntry, DatabaseEntry> kvp
+                                in dbc) 
                                 i--;
                         dbc.Close();
                         Assert.AreEqual(i, 0);
@@ -228,10 +233,11 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 
                         dbInfo = new FileInfo(btreeDBName);
                         Assert.Less(dbInfo.Length, uncompressedSize);
-                        Console.WriteLine("Uncompressed: {0}", uncompressedSize);
+                        Console.WriteLine(
+                                "Uncompressed: {0}", uncompressedSize);
                         Console.WriteLine("Compressed: {0}", dbInfo.Length);
 
-			Configuration.ClearDir(testHome);
+                        Configuration.ClearDir(testHome);
 
                         cfg = new BTreeDatabaseConfig();
                         cfg.Creation = CreatePolicy.ALWAYS;
@@ -498,6 +504,46 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 				    new DatabaseEntry(BitConverter.GetBytes(257)));
 				Assert.Greater(0, ret);
 			}
+		}
+
+		[Test]
+		public void TestEncryption() {
+			testName = "TestEncryption";
+			SetUpTest(true);
+
+			BTreeDatabase db1;
+
+			BTreeDatabaseConfig dbCfg =
+			    new BTreeDatabaseConfig();
+			dbCfg.Creation = CreatePolicy.IF_NEEDED;
+
+			// Open an encrypted database.
+			dbCfg.SetEncryption("bdb", EncryptionAlgorithm.AES);
+			using (db1 = BTreeDatabase.Open(
+			    testHome + "/" + testName + ".db", dbCfg)) {
+				Assert.IsTrue(db1.Encrypted);
+				for (int i = 0; i < 10; i++)
+					db1.Put(new DatabaseEntry
+					    (BitConverter.GetBytes(i)),
+					    new DatabaseEntry(
+					    BitConverter.GetBytes(i)));
+			}
+
+			// Verify the database is encrypted.
+			BTreeDatabaseConfig verifyDbCfg =
+			    new BTreeDatabaseConfig();
+			verifyDbCfg.Creation = CreatePolicy.IF_NEEDED;
+			verifyDbCfg.SetEncryption(
+			    dbCfg.EncryptionPassword,
+			    dbCfg.EncryptAlgorithm);
+			verifyDbCfg.Encrypted = true;
+			using (db1 = BTreeDatabase.Open(
+			    testHome + "/" + testName + ".db",
+			    verifyDbCfg)) {
+				for (int i = 0; i < 10; i++)
+					db1.Get(new DatabaseEntry(
+					    BitConverter.GetBytes(i)));
+			};
 		}
 
 		[Test]
@@ -1037,6 +1083,51 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 		}
 
 		[Test]
+		public void TestNoWaitDbExclusiveLock()
+		{
+			testName = "TestNoWaitDbExclusiveLock";
+			SetUpTest(true);
+
+			// Open an environment.
+			DatabaseEnvironmentConfig envConfig =
+			    new DatabaseEnvironmentConfig();
+			envConfig.AutoCommit = true;
+			envConfig.Create = true;
+			envConfig.UseMPool = true;
+			envConfig.UseLocking = true;
+			envConfig.UseLogging = true;
+			envConfig.UseTxns = true;
+			DatabaseEnvironment env = DatabaseEnvironment.Open(
+			    testHome, envConfig);
+
+			// Open a database.
+			BTreeDatabaseConfig btreeDBConfig =
+			    new BTreeDatabaseConfig();
+			btreeDBConfig.Env = env;
+ 			string btreeDBFileName = testName + ".db";
+			BTreeDatabase btreeDB;
+
+ 			btreeDBConfig.Creation = CreatePolicy.IF_NEEDED;
+			btreeDB = BTreeDatabase.Open(
+			    btreeDBFileName, btreeDBConfig);
+			Assert.IsNull(btreeDB.NoWaitDbExclusiveLock);
+			btreeDB.Close();
+
+			btreeDBConfig.NoWaitDbExclusiveLock = false;
+			btreeDB = BTreeDatabase.Open(
+			    btreeDBFileName, btreeDBConfig);
+			Assert.AreEqual(btreeDB.NoWaitDbExclusiveLock, false);
+			btreeDB.Close();
+
+			btreeDBConfig.NoWaitDbExclusiveLock = true;
+			btreeDB = BTreeDatabase.Open(
+			    btreeDBFileName, btreeDBConfig);
+			Assert.AreEqual(btreeDB.NoWaitDbExclusiveLock, true);
+			btreeDB.Close();
+			env.Close();
+		}
+
+		[Test]
 		public void TestOpenExistingBtreeDB()
 		{
 			testName = "TestOpenExistingBtreeDB";
@@ -1155,6 +1246,147 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 			btreeDB.Close();
 			txn.Commit();
 			env.Close();
+		}
+
+		[Test]
+		public void TestPartialGet() 
+		{
+			testName = "TestPartialGet";
+			SetUpTest(true);
+
+			DatabaseEnvironmentConfig envConfig =
+			    new DatabaseEnvironmentConfig();
+			envConfig.Create = true;
+			envConfig.UseTxns = true;
+			envConfig.UseMPool = true;
+			DatabaseEnvironment env = DatabaseEnvironment.Open(
+			    testHome, envConfig);
+
+			BTreeDatabase db;
+			PopulateDb(env, out db);
+
+			// Partially get the first byte and verify it is 'h'.
+			DatabaseEntry key, data;
+			KeyValuePair<DatabaseEntry, DatabaseEntry> pair;
+			Transaction txn = env.BeginTransaction();
+			for (int i = 0; i < 100; i++) {
+				key = new DatabaseEntry(BitConverter.GetBytes(i));
+				data = new DatabaseEntry(0, 1);
+				pair = db.Get(key, data, txn);
+				Assert.AreEqual(1, pair.Value.Data.Length);
+				Assert.AreEqual((byte)'h', pair.Value.Data[0]);
+			}
+			txn.Commit();
+			db.Close();
+			env.Close();
+
+			/*
+			 * Open the existing database and partially get
+			 * non-existing data.
+			 */
+			using (Database edb = Database.Open(
+			    testHome + "/" + testName + ".db", 
+			    new DatabaseConfig())) {
+				key = new DatabaseEntry(BitConverter.GetBytes(0));
+				data = new DatabaseEntry(10, 1);
+				pair = edb.Get(key, data);
+				Assert.AreEqual(null, pair.Value.Data);
+			}
+		}
+
+		[Test]
+		public void TestPartialPut() 
+		{
+			testName = "TestPartialPut";
+			SetUpTest(true);
+
+			BTreeDatabase db;
+			PopulateDb(null, out db);
+
+			// Partially update the records.
+			DatabaseEntry key, data;
+			KeyValuePair<DatabaseEntry, DatabaseEntry> pair;
+			byte[] partialBytes = ASCIIEncoding.ASCII.GetBytes("aa");
+			byte[] valueBytes;
+			for (int i = 0; i < 100; i++) {
+				key = new DatabaseEntry(BitConverter.GetBytes(i));
+				if (i < 50)
+					data = new DatabaseEntry(
+					    partialBytes, 0, 2);
+				else {
+					data = new DatabaseEntry(partialBytes);
+					data.Partial = true;
+					data.PartialLen = 2;
+					data.PartialOffset = 0;
+				}
+				Assert.AreEqual(0, data.PartialOffset);
+				Assert.AreEqual(2, data.PartialLen);
+				Assert.AreEqual(true, data.Partial);
+				db.Put(key, data);
+			}
+			// Verify that the records have been partially changed.
+			valueBytes = ASCIIEncoding.ASCII.GetBytes("hello");
+			valueBytes[0] = (byte)'a';
+			valueBytes[1] = (byte)'a';
+			for (int i = 0; i < 100; i++) {
+				key = new DatabaseEntry(BitConverter.GetBytes(i));
+				pair = db.Get(key);
+				Assert.AreEqual(
+				    BitConverter.GetBytes(i), pair.Key.Data);
+				Assert.AreEqual(valueBytes, pair.Value.Data);
+			}
+
+			// Partial put from non-existing offset.
+			key = new DatabaseEntry(BitConverter.GetBytes(0));
+			data = new DatabaseEntry(partialBytes, 100, 2);
+			db.Put(key, data);
+
+			// Verify that the records have been partially changed.
+			pair = db.Get(key);
+			Assert.AreEqual(102, pair.Value.Data.Length);
+			Assert.AreEqual(valueBytes[0],
+			    pair.Value.Data[100]);
+			Assert.AreEqual(valueBytes[0], 
+			    pair.Value.Data[101]);
+
+			/*
+			 * Reuse the DatabaseEntry for non-partial. The partial
+			 * length and offset should be ignored.
+			 */ 
+			key = new DatabaseEntry(BitConverter.GetBytes(0));
+			data.Partial = false;
+			db.Put(key, data);
+			pair = db.Get(key);
+			Assert.AreEqual(2, pair.Value.Data.Length);
+
+			db.Close();
+		}
+
+		private void PopulateDb(DatabaseEnvironment env,
+		    out BTreeDatabase db) 
+		{
+			DatabaseEntry key, data;
+			Transaction txn = null;
+			string dbName;
+
+			if (env != null) {
+				txn = env.BeginTransaction();
+				dbName = testName + ".db";
+			} else
+				dbName = testHome + "/" + testName + ".db";
+
+			OpenBtreeDB(env, txn, dbName, out db);
+
+			for (int i = 0; i < 100; i++) {
+				key = new DatabaseEntry(
+				    BitConverter.GetBytes(i));
+				data = new DatabaseEntry(
+				    ASCIIEncoding.ASCII.GetBytes("hello"));
+				db.Put(key, data, txn);
+			}
+
+			if (txn != null)
+				txn.Commit();
 		}
 
 		[Test]
@@ -1498,6 +1730,15 @@ ASCIIEncoding.ASCII.GetBytes(Configuration.RandomString(100)));
 				pair = btreeDB.Get(key);
 				Assert.AreEqual(key.Data, pair.Key.Data);
 				Assert.AreEqual(data.Data, pair.Value.Data);
+
+ 				// Partial put to update the existing pair.
+				data.Partial = true;
+				data.PartialLen = 4;
+				data.PartialOffset = 4;
+				btreeDB.Put(key, data);
+				pair = btreeDB.Get(key);
+				Assert.AreEqual(key.Data, pair.Key.Data);
+				Assert.AreEqual(8, pair.Value.Data.Length);
 			}
 		}
 

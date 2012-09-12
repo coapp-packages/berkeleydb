@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -184,6 +184,10 @@ __db_appname(env, appname, file, dirp, namep)
 		if (dbenv != NULL)
 			dir = dbenv->db_tmp_dir;
 		break;
+	case DB_APP_META:
+		if (dbenv != NULL)
+			dir = dbenv->db_md_dir;
+		break;
 	}
 
 	/*
@@ -246,7 +250,8 @@ __db_tmp_open(env, oflags, fhpp)
 		 * of other possible errors, we've lost.
 		 */
 		if (ret != EEXIST) {
-			__db_err(env, ret, "temporary open: %s", path);
+			__db_err(env, ret, DB_STR_A("1586",
+			    "temporary open: %s", "%s"), path);
 			goto done;
 		}
 

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -47,9 +47,17 @@ namespace BerkeleyDB {
         /// </summary>
         public uint DiskOffset { get { return st.st_disk_offset; } }
         /// <summary>
+        /// Current fileids in use. 
+        /// </summary>
+        public uint FileId { get { return st.st_nfileid; } }
+        /// <summary>
         /// Log file size. 
         /// </summary>
         public uint FileSize { get { return st.st_lg_size; } }
+        /// <summary>
+        /// Initial fileid allocation.
+        /// </summary>
+        public uint InitFileId { get { return st.st_fileid_init; } }
         /// <summary>
         /// Megabytes to log. 
         /// </summary>
@@ -66,6 +74,10 @@ namespace BerkeleyDB {
         /// Max number of commits in a flush. 
         /// </summary>
         public uint MaxCommitsPerFlush { get { return st.st_maxcommitperflush; } }
+        /// <summary>
+        /// Maximum fileids used. 
+        /// </summary>
+        public uint MaxFileId { get { return st.st_maxnfileid; } }
         /// <summary>
         /// Min number of commits in a flush. 
         /// </summary>

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id: env_method.c,v dabaaeb7d839 2010/08/03 17:28:53 mike $
  */
@@ -26,6 +26,7 @@ static int  __env_get_data_len __P((DB_ENV *, u_int32_t *));
 static int  __env_get_flags __P((DB_ENV *, u_int32_t *));
 static int  __env_get_home __P((DB_ENV *, const char **));
 static int  __env_get_intermediate_dir_mode __P((DB_ENV *, const char **));
+static int  __env_get_metadata_dir __P((DB_ENV *, const char **));
 static int  __env_get_shm_key __P((DB_ENV *, long *));
 static int  __env_get_thread_count __P((DB_ENV *, u_int32_t *));
 static int  __env_get_thread_id_fn __P((DB_ENV *,
@@ -158,6 +159,8 @@ __db_env_init(dbenv)
 	 */
 	/* DB_ENV PUBLIC HANDLE LIST BEGIN */
 	dbenv->add_data_dir = __env_add_data_dir;
+	dbenv->backup = __db_backup;
+	dbenv->dbbackup = __db_dbbackup_pp;
 	dbenv->cdsgroup_begin = __cdsgroup_begin_pp;
 	dbenv->close = __env_close_pp;
 	dbenv->dbremove = __env_dbremove_pp;
@@ -170,6 +173,8 @@ __db_env_init(dbenv)
 	dbenv->get_app_dispatch = __env_get_app_dispatch;
 	dbenv->get_cache_max = __memp_get_cache_max;
 	dbenv->get_cachesize = __memp_get_cachesize;
+	dbenv->get_backup_callbacks = __env_get_backup_callbacks;
+	dbenv->get_backup_config = __env_get_backup_config;
 	dbenv->get_create_dir = __env_get_create_dir;
 	dbenv->get_data_dirs = __env_get_data_dirs;
 	dbenv->get_data_len = __env_get_data_len;
@@ -194,6 +199,10 @@ __db_env_init(dbenv)
 	dbenv->get_lk_max_objects = __lock_get_lk_max_objects;
 	dbenv->get_lk_partitions = __lock_get_lk_partitions;
 	dbenv->get_lk_priority = __lock_get_lk_priority;
+	dbenv->get_lk_tablesize = __lock_get_lk_tablesize;
+	dbenv->get_memory_init = __env_get_memory_init;
+	dbenv->get_memory_max = __env_get_memory_max;
+	dbenv->get_metadata_dir = __env_get_metadata_dir;
 	dbenv->get_mp_max_openfd = __memp_get_mp_max_openfd;
 	dbenv->get_mp_max_write = __memp_get_mp_max_write;
 	dbenv->get_mp_mmapsize = __memp_get_mp_mmapsize;
@@ -245,11 +254,13 @@ __db_env_init(dbenv)
 	dbenv->mutex_free = __mutex_free_pp;
 	dbenv->mutex_get_align = __mutex_get_align;
 	dbenv->mutex_get_increment = __mutex_get_increment;
+	dbenv->mutex_get_init = __mutex_get_init;
 	dbenv->mutex_get_max = __mutex_get_max;
 	dbenv->mutex_get_tas_spins = __mutex_get_tas_spins;
 	dbenv->mutex_lock = __mutex_lock_pp;
 	dbenv->mutex_set_align = __mutex_set_align;
 	dbenv->mutex_set_increment = __mutex_set_increment;
+	dbenv->mutex_set_init = __mutex_set_init;
 	dbenv->mutex_set_max = __mutex_set_max;
 	dbenv->mutex_set_tas_spins = __mutex_set_tas_spins;
 	dbenv->mutex_stat = __mutex_stat_pp;
@@ -270,7 +281,7 @@ __db_env_init(dbenv)
 	dbenv->rep_set_clockskew = __rep_set_clockskew;
 	dbenv->rep_set_config = __rep_set_config;
 	dbenv->rep_set_limit = __rep_set_limit;
-	dbenv->rep_set_nsites = __rep_set_nsites;
+	dbenv->rep_set_nsites = __rep_set_nsites_pp;
 	dbenv->rep_set_priority = __rep_set_priority;
 	dbenv->rep_set_request = __rep_set_request;
 	dbenv->rep_set_timeout = __rep_set_timeout;
@@ -279,17 +290,21 @@ __db_env_init(dbenv)
 	dbenv->rep_stat = __rep_stat_pp;
 	dbenv->rep_stat_print = __rep_stat_print_pp;
 	dbenv->rep_sync = __rep_sync;
-	dbenv->repmgr_add_remote_site = __repmgr_add_remote_site;
+	dbenv->repmgr_channel = __repmgr_channel;
 	dbenv->repmgr_get_ack_policy = __repmgr_get_ack_policy;
-	dbenv->repmgr_get_local_site = __repmgr_get_local_site;
+	dbenv->repmgr_local_site = __repmgr_local_site;
+	dbenv->repmgr_msg_dispatch = __repmgr_set_msg_dispatch;
 	dbenv->repmgr_set_ack_policy = __repmgr_set_ack_policy;
-	dbenv->repmgr_set_local_site = __repmgr_set_local_site;
+	dbenv->repmgr_site = __repmgr_site;
+	dbenv->repmgr_site_by_eid = __repmgr_site_by_eid;
 	dbenv->repmgr_site_list = __repmgr_site_list;
 	dbenv->repmgr_start = __repmgr_start;
 	dbenv->repmgr_stat = __repmgr_stat_pp;
 	dbenv->repmgr_stat_print = __repmgr_stat_print_pp;
 	dbenv->set_alloc = __env_set_alloc;
 	dbenv->set_app_dispatch = __env_set_app_dispatch;
+	dbenv->set_backup_callbacks = __env_set_backup_callbacks;
+	dbenv->set_backup_config = __env_set_backup_config;
 	dbenv->set_cache_max = __memp_set_cache_max;
 	dbenv->set_cachesize = __memp_set_cachesize;
 	dbenv->set_create_dir = __env_set_create_dir;
@@ -316,6 +331,10 @@ __db_env_init(dbenv)
 	dbenv->set_lk_max_objects = __lock_set_lk_max_objects;
 	dbenv->set_lk_partitions = __lock_set_lk_partitions;
 	dbenv->set_lk_priority = __lock_set_lk_priority;
+	dbenv->set_lk_tablesize = __lock_set_lk_tablesize;
+	dbenv->set_memory_init = __env_set_memory_init;
+	dbenv->set_memory_max = __env_set_memory_max;
+	dbenv->set_metadata_dir = __env_set_metadata_dir;
 	dbenv->set_mp_max_openfd = __memp_set_mp_max_openfd;
 	dbenv->set_mp_max_write = __memp_set_mp_max_write;
 	dbenv->set_mp_mmapsize = __memp_set_mp_mmapsize;
@@ -467,6 +486,181 @@ __env_set_alloc(dbenv, mal_func, real_func, free_func)
 	dbenv->db_free = free_func;
 	return (0);
 }
+/*
+ * __env_get_memory_init --
+ *	DB_ENV->get_memory_init.
+ *
+ * PUBLIC: int  __env_get_memory_init __P((DB_ENV *,
+ * PUBLIC:	    DB_MEM_CONFIG, u_int32_t *));
+ */
+int
+__env_get_memory_init(dbenv, type, countp)
+	DB_ENV *dbenv;
+	DB_MEM_CONFIG type;
+	u_int32_t *countp;
+{
+	ENV *env;
+
+	env = dbenv->env;
+
+	switch (type) {
+	case DB_MEM_LOCK:
+		ENV_NOT_CONFIGURED(env,
+		    env->lk_handle, "DB_ENV->get_memory_init", DB_INIT_LOCK);
+		if (LOCKING_ON(env))
+			*countp = ((DB_LOCKREGION *)
+			    env->lk_handle->reginfo.primary)->stat.st_initlocks;
+		else
+			*countp = dbenv->lk_init;
+		break;
+	case DB_MEM_LOCKOBJECT:
+		ENV_NOT_CONFIGURED(env,
+		    env->lk_handle, "DB_ENV->get_memory_init", DB_INIT_LOCK);
+		if (LOCKING_ON(env))
+			*countp = ((DB_LOCKREGION *) env->
+			    lk_handle->reginfo.primary)->stat.st_initobjects;
+		else
+			*countp = dbenv->lk_init_objects;
+		break;
+	case DB_MEM_LOCKER:
+		ENV_NOT_CONFIGURED(env,
+		    env->lk_handle, "DB_ENV->get_memory_init", DB_INIT_LOCK);
+		if (LOCKING_ON(env))
+			*countp = ((DB_LOCKREGION *) env->
+			    lk_handle->reginfo.primary)->stat.st_initlockers;
+		else
+			*countp = dbenv->lk_init_lockers;
+		break;
+	case DB_MEM_LOGID:
+		ENV_NOT_CONFIGURED(env,
+		    env->lg_handle, "DB_ENV->get_memory_init", DB_INIT_LOG);
+
+		if (LOGGING_ON(env))
+			*countp = ((LOG *)env->lg_handle->
+			    reginfo.primary)->stat.st_fileid_init;
+		else
+			*countp = dbenv->lg_fileid_init;
+		break;
+	case DB_MEM_TRANSACTION:
+		ENV_NOT_CONFIGURED(env,
+		    env->tx_handle, "DB_ENV->memory_init", DB_INIT_TXN);
+
+		if (TXN_ON(env))
+			*countp = ((DB_TXNREGION *)
+			    env->tx_handle->reginfo.primary)->inittxns;
+		else
+			*countp = dbenv->tx_init;
+		break;
+	case DB_MEM_THREAD:
+		/* We always update thr_init when joining an env. */
+		*countp = dbenv->thr_init;
+		break;
+	}
+
+	return (0);
+}
+
+/*
+ * __env_set_memory_init --
+ *	DB_ENV->set_memory_init.
+ *
+ * PUBLIC: int  __env_set_memory_init __P((DB_ENV *, DB_MEM_CONFIG, u_int32_t));
+ */
+int
+__env_set_memory_init(dbenv, type, count)
+	DB_ENV *dbenv;
+	DB_MEM_CONFIG type;
+	u_int32_t count;
+{
+	ENV *env;
+
+	env = dbenv->env;
+
+	ENV_ILLEGAL_AFTER_OPEN(env, "DB_ENV->set_memory_init");
+	switch (type) {
+	case DB_MEM_LOCK:
+		dbenv->lk_init = count;
+		break;
+	case DB_MEM_LOCKOBJECT:
+		dbenv->lk_init_objects = count;
+		break;
+	case DB_MEM_LOCKER:
+		dbenv->lk_init_lockers = count;
+		break;
+	case DB_MEM_LOGID:
+		dbenv->lg_fileid_init = count;
+		break;
+	case DB_MEM_TRANSACTION:
+		dbenv->tx_init = count;
+		break;
+	case DB_MEM_THREAD:
+		dbenv->thr_init = count;
+		break;
+	}
+
+	return (0);
+}
+/*
+ * __env_get_memory_max --
+ *	DB_ENV->get_memory_max.
+ *
+ * PUBLIC: int  __env_get_memory_max __P((DB_ENV *, u_int32_t *, u_int32_t *));
+ */
+int
+__env_get_memory_max(dbenv, gbytes, bytes)
+	DB_ENV *dbenv;
+	u_int32_t *gbytes, *bytes;
+{
+	ENV *env;
+	env = dbenv->env;
+
+	if (F_ISSET(env, ENV_OPEN_CALLED)) {
+		*gbytes = (u_int32_t)(env->reginfo->rp->max / GIGABYTE);
+		*bytes = (u_int32_t)(env->reginfo->rp->max % GIGABYTE);
+	} else {
+		*gbytes = (u_int32_t)(dbenv->memory_max / GIGABYTE);
+		*bytes = (u_int32_t)(dbenv->memory_max % GIGABYTE);
+	}
+	return (0);
+}
+
+/*
+ * __env_set_memory_max --
+ *	DB_ENV->set_memory_max.
+ *
+ * PUBLIC: int  __env_set_memory_max __P((DB_ENV *, u_int32_t, u_int32_t));
+ */
+int
+__env_set_memory_max(dbenv, gbytes, bytes)
+	DB_ENV *dbenv;
+	u_int32_t gbytes, bytes;
+{
+	ENV *env;
+
+	env = dbenv->env;
+
+	ENV_ILLEGAL_AFTER_OPEN(env, "DB_ENV->set_memory_max");
+
+	/*
+	 * If they are asking for 4GB exactly on a 32 bit platform, they
+	 * really meant 4GB - 1. Give it to them.
+	 */
+	if (sizeof(roff_t) == 4 && gbytes == 4 && bytes == 0) {
+		--gbytes;
+		bytes = GIGABYTE - 1;
+	}
+	/*
+	 * Make sure they wouldn't overflow the memory_max field on a
+	 * 32 bit architecture.
+	 */
+	if (sizeof(roff_t) == 4 && gbytes >= 4) {
+		__db_errx(env, DB_STR("1588",
+	    "Maximum memory size too large: maximum is 4GB"));
+		return (EINVAL);
+	}
+	dbenv->memory_max = ((roff_t)gbytes * GIGABYTE) + bytes;
+	return (0);
+}
 
 /*
  * __env_get_app_dispatch --
@@ -529,8 +723,8 @@ __env_get_encrypt_flags(dbenv, flagsp)
 	return (0);
 #else
 	COMPQUIET(flagsp, 0);
-	__db_errx(env,
-	    "library build did not include support for cryptography");
+	__db_errx(env, DB_STR("1555",
+	    "library build did not include support for cryptography"));
 	return (DB_OPNOTSUP);
 #endif
 }
@@ -548,6 +742,7 @@ __env_set_encrypt(dbenv, passwd, flags)
 	u_int32_t flags;
 {
 #ifdef HAVE_CRYPTO
+	DB_THREAD_INFO *ip;
 	DB_CIPHER *db_cipher;
 	ENV *env;
 	int ret;
@@ -561,9 +756,11 @@ __env_set_encrypt(dbenv, passwd, flags)
 		return (__db_ferr(env, "DB_ENV->set_encrypt", 0));
 
 	if (passwd == NULL || strlen(passwd) == 0) {
-		__db_errx(env, "Empty password specified to set_encrypt");
+		__db_errx(env, DB_STR("1556",
+		    "Empty password specified to set_encrypt"));
 		return (EINVAL);
 	}
+	ENV_ENTER(env, ip);
 	if (!CRYPTO_ON(env)) {
 		if ((ret = __os_calloc(env, 1, sizeof(DB_CIPHER), &db_cipher))
 		    != 0)
@@ -601,6 +798,7 @@ __env_set_encrypt(dbenv, passwd, flags)
 	default:				/* Impossible. */
 		break;
 	}
+	ENV_LEAVE(env, ip);
 	return (0);
 
 err1:
@@ -608,13 +806,14 @@ err1:
 	__os_free(env, db_cipher);
 	env->crypto_handle = NULL;
 err:
+	ENV_LEAVE(env, ip);
 	return (ret);
 #else
 	COMPQUIET(passwd, NULL);
 	COMPQUIET(flags, 0);
 
-	__db_errx(dbenv->env,
-	    "library build did not include support for cryptography");
+	__db_errx(dbenv->env, DB_STR("1557",
+	    "library build did not include support for cryptography"));
 	return (DB_OPNOTSUP);
 #endif
 }
@@ -732,10 +931,9 @@ __env_set_flags(dbenv, flags, on)
 	int on;
 {
 	ENV *env;
-	DB_TXNREGION *tenv;
 	DB_THREAD_INFO *ip;
 	u_int32_t mapped_flags;
-	int mem_on, needs_checkpoint, ret;
+	int mem_on, ret;
 
 	env = dbenv->env;
 
@@ -768,7 +966,8 @@ __env_set_flags(dbenv, flags, on)
 		ENV_ILLEGAL_BEFORE_OPEN(env,
 		    "DB_ENV->set_flags: DB_PANIC_ENVIRONMENT");
 		if (on) {
-			__db_errx(env, "Environment panic set");
+			__db_errx(env, DB_STR("1558",
+			    "Environment panic set"));
 			(void)__env_panic(env, DB_RUNRECOVERY);
 		} else
 			__env_panic_set(env, 0);
@@ -794,8 +993,9 @@ __env_set_flags(dbenv, flags, on)
 			    DB_LOG_IN_MEMORY, &mem_on)) != 0)
 				return (ret);
 			if (mem_on == 1) {
-				__db_errx(env,
-"DB_TXN_NOSYNC and DB_TXN_WRITE_NOSYNC may not be used with DB_LOG_IN_MEMORY");
+				__db_errx(env, DB_STR("1559",
+				    "DB_TXN_NOSYNC and DB_TXN_WRITE_NOSYNC"
+				    " may not be used with DB_LOG_IN_MEMORY"));
 				return (EINVAL);
 			}
 		}
@@ -810,31 +1010,11 @@ __env_set_flags(dbenv, flags, on)
 		ENV_REQUIRES_CONFIG(env, env->tx_handle,
 		    "DB_ENV->set_flags: DB_HOTBACKUP_IN_PROGRESS", DB_INIT_TXN);
 
-		tenv = (DB_TXNREGION *)env->tx_handle->reginfo.primary;
-		needs_checkpoint = 0;
 		ENV_ENTER(env, ip);
-		TXN_SYSTEM_LOCK(env);
-		if (on) {
-			tenv->n_hotbackup++;
-			if (tenv->n_bulk_txn > 0)
-				needs_checkpoint = 1;
-		} else {
-			if (tenv->n_hotbackup == 0)
-				needs_checkpoint = -1; /* signal count error */
-			else
-				tenv->n_hotbackup--;
-		}
-		TXN_SYSTEM_UNLOCK(env);
+		ret = __env_set_backup(env, on);
 		ENV_LEAVE(env, ip);
-
-		if (needs_checkpoint == -1) {
-			__db_errx(env,
-			    "Attempt to decrement hotbackup counter past zero");
-			return (EINVAL);
-		}
-
-		if (needs_checkpoint && (ret = __txn_checkpoint(env, 0, 0, 0)))
-			return ret;
+		if (ret != 0)
+			return (ret);
 	}
 
 	mapped_flags = 0;
@@ -844,6 +1024,45 @@ __env_set_flags(dbenv, flags, on)
 	else
 		F_CLR(dbenv, mapped_flags);
 
+	return (0);
+}
+
+/*
+ * __env_set_backup --
+ * PUBLIC: int __env_set_backup __P((ENV *, int));
+ */
+int
+__env_set_backup(env, on)
+	ENV *env;
+	int on;
+{
+	DB_TXNREGION *tenv;
+	int needs_checkpoint, ret;
+
+	tenv = (DB_TXNREGION *)env->tx_handle->reginfo.primary;
+	needs_checkpoint = 0;
+
+	TXN_SYSTEM_LOCK(env);
+	if (on) {
+		tenv->n_hotbackup++;
+		if (tenv->n_bulk_txn > 0)
+			needs_checkpoint = 1;
+	} else {
+		if (tenv->n_hotbackup == 0)
+			needs_checkpoint = -1; /* signal count error */
+		else
+			tenv->n_hotbackup--;
+	}
+	TXN_SYSTEM_UNLOCK(env);
+
+	if (needs_checkpoint == -1) {
+		__db_errx(env, DB_STR("1560",
+	    "Attempt to decrement hotbackup counter past zero"));
+		return (EINVAL);
+	}
+
+	if (needs_checkpoint && (ret = __txn_checkpoint(env, 0, 0, 0)))
+		return (ret);
 	return (0);
 }
 
@@ -944,7 +1163,8 @@ __env_set_create_dir(dbenv, dir)
 			break;
 
 	if (i == dbenv->data_next) {
-		__db_errx(env, "Directory %s not in environment list.", dir);
+		__db_errx(env, DB_STR_A("1561",
+		    "Directory %s not in environment list.", "%s"), dir);
 		return (EINVAL);
 	}
 
@@ -967,6 +1187,49 @@ __env_get_intermediate_dir_mode(dbenv, modep)
 	const char **modep;
 {
 	*modep = dbenv->intermediate_dir_mode;
+	return (0);
+}
+
+/*
+ * __env_set_metadata_dir --
+ *	DB_ENV->set_metadata_dir.
+ *
+ * PUBLIC: int  __env_set_metadata_dir __P((DB_ENV *, const char *));
+ */
+int
+__env_set_metadata_dir(dbenv, dir)
+	DB_ENV *dbenv;
+	const char *dir;
+{
+	ENV *env;
+	int i, ret;
+
+	env = dbenv->env;
+
+	ENV_ILLEGAL_AFTER_OPEN(env, "DB_ENV->set_metadata_dir");
+
+	/* If metadata_dir is not already on data_dir list, add it. */
+	for (i = 0; i < dbenv->data_next; i++)
+		if (strcmp(dir, dbenv->db_data_dir[i]) == 0)
+			break;
+	if (i == dbenv->data_next &&
+	    (ret = __env_add_data_dir(dbenv, dir)) != 0) {
+		__db_errx(env, DB_STR_A("1590",
+		    "Could not add %s to environment list.", "%s"), dir);
+		return (ret);
+	}
+
+	if (dbenv->db_md_dir != NULL)
+		__os_free(env, dbenv->db_md_dir);
+	return (__os_strdup(env, dir, &dbenv->db_md_dir));
+}
+
+static int
+__env_get_metadata_dir(dbenv, dirp)
+	DB_ENV *dbenv;
+	const char **dirp;
+{
+	*dirp = dbenv->db_md_dir;
 	return (0);
 }
 
@@ -1235,8 +1498,8 @@ __env_get_isalive(dbenv, is_alivep)
 	env = dbenv->env;
 
 	if (F_ISSET(env, ENV_OPEN_CALLED) && env->thr_nbucket == 0) {
-		__db_errx(env,
-		    "is_alive method specified but no thread region allocated");
+		__db_errx(env, DB_STR("1562",
+	    "is_alive method specified but no thread region allocated"));
 		return (EINVAL);
 	}
 	if (is_alivep != NULL)
@@ -1258,8 +1521,8 @@ __env_set_isalive(dbenv, is_alive)
 	env = dbenv->env;
 
 	if (F_ISSET(env, ENV_OPEN_CALLED) && env->thr_nbucket == 0) {
-		__db_errx(env,
-		    "is_alive method specified but no thread region allocated");
+		__db_errx(env, DB_STR("1563",
+	    "is_alive method specified but no thread region allocated"));
 		return (EINVAL);
 	}
 	dbenv->is_alive = is_alive;
@@ -1453,6 +1716,7 @@ __env_get_verbose(dbenv, which, onoffp)
 	int *onoffp;
 {
 	switch (which) {
+	case DB_VERB_BACKUP:
 	case DB_VERB_DEADLOCK:
 	case DB_VERB_FILEOPS:
 	case DB_VERB_FILEOPS_ALL:
@@ -1490,6 +1754,7 @@ __env_set_verbose(dbenv, which, on)
 	int on;
 {
 	switch (which) {
+	case DB_VERB_BACKUP:
 	case DB_VERB_DEADLOCK:
 	case DB_VERB_FILEOPS:
 	case DB_VERB_FILEOPS_ALL:
@@ -1528,8 +1793,9 @@ __db_mi_env(env, name)
 	ENV *env;
 	const char *name;
 {
-	__db_errx(env,
-	    "%s: method not permitted when environment specified", name);
+	__db_errx(env, DB_STR_A("1564",
+	    "%s: method not permitted when environment specified", "%s"),
+	    name);
 	return (EINVAL);
 }
 
@@ -1545,8 +1811,9 @@ __db_mi_open(env, name, after)
 	const char *name;
 	int after;
 {
-	__db_errx(env, "%s: method not permitted %s handle's open method",
-	    name, after ? "after" : "before");
+	__db_errx(env, DB_STR_A("1565",
+	    "%s: method not permitted %s handle's open method", "%s %s"),
+	    name, after ? DB_STR_P("after") : DB_STR_P("before"));
 	return (EINVAL);
 }
 
@@ -1563,8 +1830,15 @@ __env_not_config(env, i, flags)
 	u_int32_t flags;
 {
 	char *sub;
+	int is_sub;
+
+	is_sub = 1;
 
 	switch (flags) {
+	case DB_INIT_CDB:
+		sub = "DB_INIT_CDB";
+		is_sub = 0;
+		break;
 	case DB_INIT_LOCK:
 		sub = "locking";
 		break;
@@ -1573,6 +1847,9 @@ __env_not_config(env, i, flags)
 		break;
 	case DB_INIT_MPOOL:
 		sub = "memory pool";
+		break;
+	case DB_INIT_MUTEX:
+		sub = "mutex";
 		break;
 	case DB_INIT_REP:
 		sub = "replication";
@@ -1584,9 +1861,17 @@ __env_not_config(env, i, flags)
 		sub = "<unspecified>";
 		break;
 	}
-	__db_errx(env,
+
+	if (is_sub) {
+		__db_errx(env, DB_STR_A("1566",
     "%s interface requires an environment configured for the %s subsystem",
-	    i, sub);
+	    "%s %s"), i, sub);
+	} else {
+		__db_errx(env, DB_STR_A("1587",
+	"%s interface requires an environment configured with %s",
+	    "%s %s"), i, sub);
+	}
+
 	return (EINVAL);
 }
 

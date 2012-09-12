@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2001, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2001, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -9,6 +9,7 @@
 
 // Chainable struct used to store host information.
 typedef struct RepHostInfoObj{
+	bool creator;
 	char* host;
 	int port;
 	bool peer; // only relevant for "other" hosts
@@ -26,7 +27,7 @@ public:
 	const char* home;
 	bool got_listen_address;
 	REP_HOST_INFO this_host;
-	int totalsites;
+	int nrsites;
 	int priority;
 	bool verbose;
 	// used to store a set of optional other hosts.

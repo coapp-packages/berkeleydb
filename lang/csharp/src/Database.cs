@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -198,6 +198,9 @@ namespace BerkeleyDB {
                     break;
                 case DBTYPE.DB_HASH:
                     ret = new HashDatabase(db);
+                    break;
+                case DBTYPE.DB_HEAP:
+                    ret = new HeapDatabase(db);
                     break;
                 case DBTYPE.DB_QUEUE:
                     ret = new QueueDatabase(db);
@@ -588,6 +591,10 @@ namespace BerkeleyDB {
         /// </overloads>
         /// <param name="key">The key to store in the database</param>
         /// <param name="data">The data item to store in the database</param>
+        /// <exception cref="DatabaseException">
+        /// Partial put to a duplicate database, or <see cref="QueueDatabase"/>
+        /// or <see cref="RecnoDatabase"/> with fixed-length records.
+        /// </exception>
         public void Put(DatabaseEntry key, DatabaseEntry data) {
             Put(key, data, null);
         }
@@ -618,6 +625,12 @@ namespace BerkeleyDB {
         /// existing key if duplicates are disallowed, or adding a duplicate
         /// data item if duplicates are allowed.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// When partial put to a duplicate database, a
+        /// <see cref="DatabaseException"/> is thrown.
+        /// </para>
+        /// </remarks>
         /// <param name="key">The key to store in the database</param>
         /// <param name="data">The data item to store in the database</param>
         /// <param name="txn">
@@ -628,6 +641,10 @@ namespace BerkeleyDB {
         /// <paramref name="txn"/> is a handle returned from
         /// <see cref="DatabaseEnvironment.BeginCDSGroup"/>; otherwise null.
         /// </param>
+        /// <exception cref="DatabaseException">
+        /// Partial put to a duplicate database, or <see cref="QueueDatabase"/>
+        /// or <see cref="RecnoDatabase"/> with fixed-length records.
+        /// </exception>
         public void Put(
             DatabaseEntry key, DatabaseEntry data, Transaction txn) {
             Put(key, data, txn, 0);

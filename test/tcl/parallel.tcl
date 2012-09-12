@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # Code to load up the tests in to the Queue database
 # $Id$
@@ -282,7 +282,7 @@ proc mkparalleldirs { nprocs basename queuedir } {
 			catch {eval file copy \
 			    [eval glob {$dir/$buildpath/db_{checkpoint,deadlock}$EXE} \
 			    {$dir/$buildpath/db_{dump,load,printlog,recover,stat,upgrade}$EXE} \
-			    {$dir/$buildpath/db_{archive,verify,hotbackup}$EXE}] \
+			    {$dir/$buildpath/db_{archive,verify,hotbackup,log_verify}$EXE}] \
 			    {$dir/$buildpath/dbkill$EXE} \
 			    $destdir/$buildpath}
 			catch {eval file copy \
@@ -295,7 +295,7 @@ proc mkparalleldirs { nprocs basename queuedir } {
 		catch {eval file copy \
 		    [eval glob {$dir/db_{checkpoint,deadlock}$EXE} \
 		    {$dir/db_{dump,load,printlog,recover,stat,upgrade}$EXE} \
-		    {$dir/db_{archive,verify,hotbackup}$EXE}] \
+		    {$dir/db_{archive,verify,hotbackup,log_verify}$EXE}] \
 		    $destdir}
 		catch {eval file copy \
 		    [eval glob -nocomplain {$dir/db_{reptest,repsite,replicate}$EXE}] $destdir}
@@ -309,6 +309,7 @@ proc mkparalleldirs { nprocs basename queuedir } {
 
 		regsub {test_path } $d {test_path ../} d
 		regsub {src_root } $d {src_root ../} d
+		regsub {tcl_utils } $d {tcl_utils ../} d
 		set tdir "TESTDIR.$i"
 		regsub -all {TESTDIR} $d $tdir d
 		set outfile [open $destdir/include.tcl w]

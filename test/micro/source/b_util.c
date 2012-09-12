@@ -1,7 +1,7 @@
 /*
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -19,6 +19,19 @@ b_util_have_hash()
 #else
 	fprintf(stderr,
     "library build did not include support for the Hash access method\n");
+	return (1);
+#endif
+}
+
+int
+b_util_have_heap()
+{
+#if defined(HAVE_HEAP) ||\
+    DB_VERSION_MAJOR < 5 || DB_VERSION_MAJOR == 5 && DB_VERSION_MINOR < 2
+	return (0);
+#else
+	fprintf(stderr,
+    "library build did not include support for the Heap access method\n");
 	return (1);
 #endif
 }

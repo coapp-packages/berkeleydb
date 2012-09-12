@@ -12,7 +12,10 @@
     <link rel="next" href="dbopen.html" title="DB-&gt;open()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DB-&gt;key_range()</th>
@@ -99,7 +102,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3637311"></a>Parameters</h3>
+              <h3 class="title"><a id="idp57850944"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -107,7 +110,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3636515"></a>txnid</h4>
+                <h4 class="title"><a id="idp57850792"></a>txnid</h4>
               </div>
             </div>
           </div>
@@ -129,7 +132,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637465"></a>key</h4>
+                <h4 class="title"><a id="idp57860760"></a>key</h4>
               </div>
             </div>
           </div>
@@ -141,7 +144,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637418"></a>key_range</h4>
+                <h4 class="title"><a id="idp57857664"></a>key_range</h4>
               </div>
             </div>
           </div>
@@ -158,7 +161,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637410"></a>flags</h4>
+                <h4 class="title"><a id="idp57857232"></a>flags</h4>
               </div>
             </div>
           </div>
@@ -172,7 +175,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3637449"></a>Errors</h3>
+              <h3 class="title"><a id="idp57859488"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -188,7 +191,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3636668"></a>DB_LOCK_DEADLOCK</h4>
+                <h4 class="title"><a id="idp57862456"></a>DB_LOCK_DEADLOCK</h4>
               </div>
             </div>
           </div>
@@ -201,7 +204,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637482"></a>DB_LOCK_NOTGRANTED</h4>
+                <h4 class="title"><a id="idp57861752"></a>DB_LOCK_NOTGRANTED</h4>
               </div>
             </div>
           </div>
@@ -209,12 +212,19 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
             </p>
+          <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="DB-&gt;set_lk_exclusive()">DB-&gt;set_lk_exclusive()</a>
+                for more information.
+            </p>
         </div>
         <div class="sect3" lang="en" xml:lang="en">
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637674"></a>  DB_REP_HANDLE_DEAD</h4>
+                <h4 class="title"><a id="idp57863312"></a>  DB_REP_HANDLE_DEAD</h4>
               </div>
             </div>
           </div>
@@ -233,7 +243,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637515"></a>DB_REP_LOCKOUT</h4>
+                <h4 class="title"><a id="idp57855736"></a>DB_REP_LOCKOUT</h4>
               </div>
             </div>
           </div>
@@ -245,7 +255,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3637502"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp57866208"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -259,7 +269,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3637478"></a>Class</h3>
+              <h3 class="title"><a id="idp57849400"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -271,7 +281,7 @@ DB-&gt;key_range(DB *db, DB_TXN *txnid,
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3637386"></a>See Also</h3>
+              <h3 class="title"><a id="idp57866888"></a>See Also</h3>
             </div>
           </div>
         </div>

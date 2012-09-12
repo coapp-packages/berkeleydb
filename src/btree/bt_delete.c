@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994, 1995, 1996
@@ -526,9 +526,10 @@ __bam_pupdate(dbc, lpg)
 		    lpg, epg[1].page, BPI_NORECNUM | BPI_REPLACE)) != 0) {
 			if (ret == DB_NEEDSPLIT) {
 				/* This should not happen. */
-				__db_errx(env,
-				     "Not enough room in parent: %s: page %lu",
-				     dbc->dbp->fname, (u_long)PGNO(epg->page));
+				__db_errx(env, DB_STR_A("1020",
+				    "Not enough room in parent: %s: page %lu",
+				    "%s %lu"), dbc->dbp->fname,
+				    (u_long)PGNO(epg->page));
 				ret = __env_panic(env, EINVAL);
 			}
 			epg->indx++;

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -30,8 +30,8 @@ static int
 __db_novrfy(env)
 	ENV *env;
 {
-	__db_errx(env,
-	    "library build did not include support for database verification");
+	__db_errx(env, DB_STR("0571",
+    "library build did not include support for database verification"));
 	return (DB_OPNOTSUP);
 }
 
@@ -97,13 +97,15 @@ __db_vrfy_putpageinfo(env, vdp, pip)
 }
 
 int
-__db_vrfy_prdbt(dbtp, checkprint, prefix, handle, callback, is_recno, vdp)
+__db_vrfy_prdbt(dbtp, checkprint, prefix,
+    handle, callback, is_recno, is_heap, vdp)
 	DBT *dbtp;
 	int checkprint;
 	const char *prefix;
 	void *handle;
 	int (*callback) __P((void *, const void *));
 	int is_recno;
+	int is_heap;
 	VRFY_DBINFO *vdp;
 {
 	COMPQUIET(dbtp, NULL);
@@ -112,6 +114,7 @@ __db_vrfy_prdbt(dbtp, checkprint, prefix, handle, callback, is_recno, vdp)
 	COMPQUIET(handle, NULL);
 	COMPQUIET(callback, NULL);
 	COMPQUIET(is_recno, 0);
+	COMPQUIET(is_heap, 0);
 	return (__db_novrfy(vdp->pgdbp->env));
 }
 #endif /* !HAVE_VERIFY */

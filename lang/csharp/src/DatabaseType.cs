@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -24,6 +24,11 @@ namespace BerkeleyDB {
         /// </summary>
         public static readonly DatabaseType HASH
             = new DatabaseType(DBTYPE.DB_HASH);
+        /// <summary>
+        /// Heap access method
+        /// </summary>
+        public static readonly DatabaseType HEAP
+            = new DatabaseType(DBTYPE.DB_HEAP);
         /// <summary>
         /// Recno access method
         /// </summary>
@@ -60,6 +65,8 @@ namespace BerkeleyDB {
                     return "BTree";
                 case DBTYPE.DB_HASH:
                     return "Hash";
+                case DBTYPE.DB_HEAP:
+                    return "Heap";
                 case DBTYPE.DB_QUEUE:
                     return "Queue";
                 case DBTYPE.DB_RECNO:

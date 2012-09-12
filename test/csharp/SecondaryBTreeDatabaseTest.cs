@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -102,6 +102,12 @@ namespace CsharpAPITest
 			dbt2 = new DatabaseEntry(
 			    BitConverter.GetBytes((int)255));
 			Assert.Less(0, cmp(dbt1, dbt2));
+
+
+			for (int i = 0; i < 1000; i++)
+				btreeDB.Put(new DatabaseEntry(
+				    BitConverter.GetBytes(i)), new DatabaseEntry(
+				    BitConverter.GetBytes(i)));
 
 			secDB.Close();
 			btreeDB.Close();

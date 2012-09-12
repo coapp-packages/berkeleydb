@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -12,6 +12,7 @@
 #include "dbinc/db_page.h"
 #include "dbinc/btree.h"
 #include "dbinc/hash.h"
+#include "dbinc/heap.h"
 #include "dbinc/qam.h"
 #include "dbinc/lock.h"
 #include "dbinc/mp.h"
@@ -107,6 +108,9 @@ __db_stat(dbp, ip, txn, spp, flags)
 		break;
 	case DB_HASH:
 		ret = __ham_stat(dbc, spp, flags);
+		break;
+	case DB_HEAP:
+		ret = __heap_stat(dbc, spp, flags);
 		break;
 	case DB_QUEUE:
 		ret = __qam_stat(dbc, spp, flags);
@@ -252,6 +256,9 @@ __db_print_stats(dbp, ip, flags)
 		break;
 	case DB_HASH:
 		ret = __ham_stat_print(dbc, flags);
+		break;
+	case DB_HEAP:
+		ret = __heap_stat_print(dbc, flags);
 		break;
 	case DB_QUEUE:
 		ret = __qam_stat_print(dbc, flags);
@@ -453,6 +460,9 @@ __db_print_citem(dbc)
 		break;
 	case DB_HASH:
 		__ham_print_cursor(dbc);
+		break;
+	case DB_HEAP:
+		__heap_print_cursor(dbc);
 		break;
 	case DB_UNKNOWN:
 		DB_ASSERT(env, dbp->type != DB_UNKNOWN);

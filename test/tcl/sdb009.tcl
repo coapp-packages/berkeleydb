@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2000, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2000, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -15,7 +15,7 @@ proc sdb009 { method args } {
 
 	puts "Subdb009: $method ($args): Test of DB->rename()"
 
-	if { [is_queue $method] == 1 } {
+       if { [is_queue $method] == 1 || [is_heap $method] == 1 } {
 		puts "\tSubdb009: Skipping for method $method."
 		return
 	}

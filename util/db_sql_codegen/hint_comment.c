@@ -1,7 +1,7 @@
 /*
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 
@@ -140,7 +140,7 @@ unsigned long int parse_integer(s)
 
 	x = strtoul(s, &t, 0);
 	if (s == t)
-		hc_warn("unparseable integer string %s", s);
+		hc_warn("cannot parse integer string %s", s);
 
 	switch (*t) {
 	case '\0':

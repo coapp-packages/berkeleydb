@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2001, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2001, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -77,3 +77,4 @@ proc run_cxx {} { shelltest 2 }
 proc run_junit {} { shelltest 3 }
 proc run_java_compat {} { shelltest 4 }
 proc run_sql_codegen {} { shelltest 5 }
+proc run_xa {} { shelltest 6 }

@@ -6,6 +6,7 @@ set tcllib .libs/libdb_tcl-@DB_VERSION_MAJOR@.@DB_VERSION_MINOR@@LIBTSO_MODSUFFI
 set src_root @srcdir@/..
 set test_path @srcdir@/../test/tcl
 set je_root @srcdir@/../../je
+set tcl_utils @srcdir@/../test/tcl_utils
 
 global testdir
 set testdir ./TESTDIR
@@ -16,6 +17,7 @@ global util_path
 global is_freebsd_test
 global is_hp_test
 global is_linux_test
+global is_osx_test
 global is_qnx_test
 global is_sunos_test
 global is_windows_test

@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2005, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2005, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -8,7 +8,7 @@
 # TEST	Test file system operations on named in-memory databases.
 # TEST	Combine two ops in one transaction.
 proc fop008 { method args } {
-	eval {fop006 $method 1} $args
+	eval {fop006 $method 1 0} $args
 }
 
 

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2002, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2002, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -512,6 +512,31 @@ public class DatabaseEntry {
         setPartialOffset(doff);
         setPartialLength(dlen);
         setPartial(partial);
+    }
+
+    /**
+    Return whether this DatabaseEntry is configured as read only.
+    <p>
+    @return
+    Whether this DatabaseEntry is configured as read only.
+    <p>
+    @see #setReadOnly(boolean)
+    */
+    public boolean getReadOnly() {
+        return (flags & DbConstants.DB_DBT_READONLY) != 0;
+    }
+
+    /**
+    Configure this DatabaseEntry as read only.
+    <p>
+    @param readonly
+    Whether this DatabaseEntry is configured as read only.
+    */
+    public void setReadOnly(final boolean readonly) {
+        if (readonly)
+            flags |= DbConstants.DB_DBT_READONLY;
+        else
+            flags &= ~DbConstants.DB_DBT_READONLY;
     }
 
     /**

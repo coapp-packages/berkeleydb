@@ -179,7 +179,7 @@ public class JDBCConnection
 
     /* non-standard */
     public SQLite.Database getSQLiteDatabase() {
-	return (SQLite.Database) db;
+	return db;
     }
   
     public Statement createStatement() {
@@ -329,7 +329,7 @@ public class JDBCConnection
     }
 
     public void setTransactionIsolation(int level) throws SQLException {
-	if (db.is3() && SQLite.JDBCDriver.sharedCache) {
+	if (db.is3() && SQLite.JDBC.sharedCache) {
 	    String flag = null;
 	    if (level == TRANSACTION_READ_UNCOMMITTED &&
 		trmode != TRANSACTION_READ_UNCOMMITTED) {

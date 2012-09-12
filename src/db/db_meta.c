@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  */
 /*
  * Copyright (c) 1990, 1993, 1994, 1995, 1996
@@ -176,9 +176,10 @@ __db_new(dbc, type, lockp, pagepp)
 		DB_ASSERT(env, TYPE(h) == P_INVALID);
 
 		if (TYPE(h) != P_INVALID) {
-			__db_errx(env,
+			__db_errx(env, DB_STR_A("0689",
 			    "%s page %lu is on free list with type %lu",
-				dbp->fname, (u_long)PGNO(h), (u_long)TYPE(h));
+			    "%s %lu %lu"), dbp->fname, (u_long)PGNO(h),
+			    (u_long)TYPE(h));
 			return (__env_panic(env, EINVAL));
 		}
 
@@ -225,7 +226,7 @@ __db_new(dbc, type, lockp, pagepp)
 
 	if (hash == 0 && (ret = __memp_fput(mpf,
 	    dbc->thread_info, meta, dbc->priority)) != 0)
-	    	goto err;
+		goto err;
 	meta = NULL;
 
 	switch (type) {
@@ -444,21 +445,17 @@ no_sort:
 		ldbt.data = h;
 		ldbt.size = P_OVERHEAD(dbp);
 		/*
-		 * If we are truncating the file, we need to make sure
-		 * the logging happens before the truncation.  If we
+		 * If we are removing pages from the file, we need to make
+		 * sure the logging happens before the truncation.  If we
 		 * are truncating multiple pages we don't need to flush the
 		 * log here as it will be flushed by __db_truncate_freelist.
-		 * If we are zeroing pages rather than truncating we still
-		 * need to flush since they will not have valid LSNs.
 		 */
 		lflag = 0;
 
-		if (h->pgno == last_pgno
 #ifdef HAVE_FTRUNCATE
-		    && do_truncate == 0
-#endif
-		)
+		if (h->pgno == last_pgno && do_truncate == 0)
 			lflag = DB_FLUSH;
+#endif
 		switch (h->type) {
 		case P_HASH:
 		case P_IBTREE:
@@ -507,9 +504,7 @@ logged:
 		ret = __db_truncate_freelist(
 		      dbc, meta, h, list, start, nelem);
 		h = NULL;
-	} else
-#endif
-	if (h->pgno == last_pgno) {
+	} else if (h->pgno == last_pgno) {
 		/*
 		 * We are going to throw this page away, but if we are
 		 * using MVCC then this version may stick around and we
@@ -532,9 +527,7 @@ logged:
 			goto err1;
 		DB_ASSERT(dbp->env, meta->pgno == PGNO_BASE_MD);
 		meta->last_pgno--;
-		h = NULL;
 	} else {
-#ifdef HAVE_FTRUNCATE
 		if (list != NULL) {
 			/* Put the page number into the list. */
 			if ((ret =
@@ -549,6 +542,8 @@ logged:
 				    ((u_int8_t*)&list[nelem] - (u_int8_t*)lp));
 			*lp = h->pgno;
 		}
+#else
+	{
 #endif
 		/*
 		 * If we are not truncating the page then we
@@ -735,7 +730,7 @@ again:	if (DBC_LOGGING(dbc)) {
 				lpgno = lp[elems - 1].pgno;
 		}
 		/*
-		 * If this is not the begining of the list fetch the end
+		 * If this is not the beginning of the list fetch the end
 		 * of the previous segment.  This page becomes the last_free
 		 * page and will link to this segment if it is not truncated.
 		 */
@@ -1246,7 +1241,7 @@ __db_lget(dbc, action, pgno, mode, lkflags, lockp)
 		action = LCK_COUPLE;
 	else if (lockp->mode == DB_LOCK_READ_UNCOMMITTED)
 		action = LCK_COUPLE;
-	else if (F_ISSET(dbc->dbp, DB_AM_READ_UNCOMMITTED) && 
+	else if (F_ISSET(dbc->dbp, DB_AM_READ_UNCOMMITTED) &&
 	     !F_ISSET(dbc, DBC_ERROR) && lockp->mode == DB_LOCK_WRITE)
 		action = LCK_DOWNGRADE;
 	else
@@ -1309,13 +1304,13 @@ do_couple:	couple[i].op = has_timeout? DB_LOCK_GET_TIMEOUT : DB_LOCK_GET;
  * PUBLIC: #endif
  */
 int
-__db_haslock(env, locker, dbmfp, pgno, mode, lkflags)
+__db_haslock(env, locker, dbmfp, pgno, mode, type)
 	ENV *env;
 	DB_LOCKER *locker;
 	DB_MPOOLFILE *dbmfp;
 	db_pgno_t pgno;
 	db_lockmode_t mode;
-	u_int32_t lkflags;
+	u_int32_t type;
 {
 	DBT lkdata;
 	DB_LOCK lock;
@@ -1327,10 +1322,7 @@ __db_haslock(env, locker, dbmfp, pgno, mode, lkflags)
 
 	memcpy(ilock.fileid, dbmfp->fileid, DB_FILE_ID_LEN);
 	ilock.pgno = pgno;
-	if (lkflags & DB_LOCK_RECORD)
-		ilock.type = DB_RECORD_LOCK;
-	else
-		ilock.type = DB_PAGE_LOCK;
+	ilock.type = type;
 
 	return (__lock_get(env, locker, DB_LOCK_CHECK, &lkdata, mode, &lock));
 }
@@ -1352,10 +1344,14 @@ __db_has_pagelock(env, locker, dbmfp, pagep, mode)
 	PAGE *pagep;
 	db_lockmode_t mode;
 {
+	int ret;
+
 	switch (pagep->type) {
 	case P_OVERFLOW:
 	case P_INVALID:
 	case P_QAMDATA:
+	case P_QAMMETA:
+	case P_IHEAP:
 		return (0);
 	case P_HASH:
 		if (PREV_PGNO(pagep) != PGNO_INVALID)
@@ -1364,7 +1360,11 @@ __db_has_pagelock(env, locker, dbmfp, pagep, mode)
 	default:
 		break;
 	}
-	return (__db_haslock(env, locker, dbmfp, pagep->pgno, mode, 0));
+	if ((ret = __db_haslock(env,
+	    locker, dbmfp, pagep->pgno, mode, DB_PAGE_LOCK)) != 0)
+		ret = __db_haslock(env,
+		    locker, dbmfp, PGNO_BASE_MD, mode, DB_DATABASE_LOCK);
+	return (ret);
 }
 #endif
 

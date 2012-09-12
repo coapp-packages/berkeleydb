@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -11,6 +11,15 @@
 #include "db_int.h"
 #include "dbinc/mp.h"
 #include "dbinc/txn.h"
+
+/*
+ * This configuration parameter limits the number of hash buckets which
+ * __memp_alloc() searches through while excluding buffers with a 'high'
+ * priority.
+ */
+#if !defined(MPOOL_ALLOC_SEARCH_LIMIT)
+#define	MPOOL_ALLOC_SEARCH_LIMIT	500
+#endif
 
 /*
  * __memp_alloc --
@@ -30,15 +39,16 @@ __memp_alloc(dbmp, infop, mfp, len, offsetp, retp)
 {
 	BH *bhp, *current_bhp, *mvcc_bhp, *oldest_bhp;
 	BH_FROZEN_PAGE *frozen_bhp;
-	DB_LSN vlsn;
+	DB_LSN oldest_reader, vlsn;
 	DB_MPOOL_HASH *dbht, *hp, *hp_end, *hp_saved, *hp_tmp;
 	ENV *env;
 	MPOOL *c_mp;
 	MPOOLFILE *bh_mfp;
 	size_t freed_space;
-	u_int32_t buckets, buffers, high_priority, priority, priority_saved;
-	u_int32_t put_counter, total_buckets;
-	int aggressive, alloc_freeze, b_lock, giveup, got_oldest;
+	u_int32_t buckets, bucket_priority, buffers, cache_reduction;
+	u_int32_t dirty_eviction, high_priority, priority, versions;
+	u_int32_t priority_saved, put_counter, lru_generation, total_buckets;
+	int aggressive, alloc_freeze, b_lock, giveup;
 	int h_locked, need_free, obsolete, ret, write_error;
 	u_int8_t *endp;
 	void *p;
@@ -51,8 +61,8 @@ __memp_alloc(dbmp, infop, mfp, len, offsetp, retp)
 	priority_saved = 0;
 	write_error = 0;
 
-	buckets = buffers = put_counter = total_buckets = 0;
-	aggressive = alloc_freeze = giveup = got_oldest = h_locked = 0;
+	buckets = buffers = put_counter = total_buckets = versions = 0;
+	aggressive = alloc_freeze = giveup = h_locked = 0;
 
 	/*
 	 * If we're allocating a buffer, and the one we're discarding is the
@@ -70,12 +80,6 @@ __memp_alloc(dbmp, infop, mfp, len, offsetp, retp)
 	STAT_INC(env, mpool, nallocs, c_mp->stat.st_alloc, len);
 
 	MPOOL_REGION_LOCK(env, infop);
-
-	/*
-	 * Anything newer than 1/10th of the buffer pool is ignored during
-	 * allocation (unless allocation starts failing).
-	 */
-	high_priority = c_mp->lru_count - c_mp->pages / 10;
 
 	/*
 	 * First we try to allocate from free memory.  If that fails, scan the
@@ -138,11 +142,23 @@ found:		if (offsetp != NULL)
 	} else if (giveup || c_mp->pages == 0) {
 		MPOOL_REGION_UNLOCK(env, infop);
 
-		__db_errx(env,
-		    "unable to allocate space from the buffer cache");
+		__db_errx(env, DB_STR("3017",
+		    "unable to allocate space from the buffer cache"));
 		return ((ret == ENOMEM && write_error != 0) ? EIO : ret);
 	}
-search:	ret = 0;
+
+search:
+	/*
+	 * Anything newer than 1/10th of the buffer pool is ignored during the
+	 * first MPOOL_SEARCH_ALLOC_LIMIT buckets worth of allocation.
+	 */
+	cache_reduction = c_mp->pages / 10;
+	high_priority = aggressive ? MPOOL_LRU_MAX :
+	    c_mp->lru_priority - cache_reduction;
+	lru_generation = c_mp->lru_generation;
+
+	ret = 0;
+	MAX_LSN(oldest_reader);
 
 	/*
 	 * We re-attempt the allocation every time we've freed 3 times what
@@ -207,8 +223,14 @@ search:	ret = 0;
 			MPOOL_REGION_UNLOCK(env, infop);
 
 			aggressive++;
-			PERFMON4(env, mpool, alloc_wrap, len,
-			    infop->id, aggressive, c_mp->put_counter);
+			/*
+			 * Once aggressive, we consider all buffers. By setting
+			 * this to MPOOL_LRU_MAX, we'll still select a victim
+			 * even if all buffers have the highest normal priority.
+			 */
+			high_priority = MPOOL_LRU_MAX;
+			PERFMON4(env, mpool, alloc_wrap,
+			    len, infop->id, aggressive, c_mp->put_counter);
 			switch (aggressive) {
 			case 1:
 				break;
@@ -244,6 +266,13 @@ search:	ret = 0;
 		if (SH_TAILQ_FIRST(&hp->hash_bucket, __bh) == NULL)
 			continue;
 
+		/* Set aggressive if we have already searched for too long. */
+		if (aggressive == 0 && buckets >= MPOOL_ALLOC_SEARCH_LIMIT) {
+			aggressive = 1;
+			/* Once aggressive, we consider all buffers. */
+			high_priority = MPOOL_LRU_MAX;
+		}
+
 		/* Unlock the region and lock the hash bucket. */
 		MPOOL_REGION_UNLOCK(env, infop);
 		MUTEX_READLOCK(env, hp->mtx_hash);
@@ -272,6 +301,7 @@ search:	ret = 0;
 		 * Ignore referenced buffers, we can't get rid of them.
 		 */
 retry_search:	bhp = NULL;
+		bucket_priority = high_priority;
 		obsolete = 0;
 		SH_TAILQ_FOREACH(current_bhp, &hp->hash_bucket, hq, __bh) {
 			/*
@@ -279,14 +309,20 @@ retry_search:	bhp = NULL;
 			 * We can use the buffer if it is unreferenced, has a
 			 * priority that isn't too high (unless we are
 			 * aggressive), and is better than the best candidate
-			 * we have found so far.
+			 * we have found so far in this bucket.
 			 */
+#ifdef MPOOL_ALLOC_SEARCH_DYN
+			if (aggressive == 0 &&
+			     ++high_priority >= c_mp->lru_priority)
+				aggressive = 1;
+#endif
+
 			if (SH_CHAIN_SINGLETON(current_bhp, vc)) {
-				if (BH_REFCOUNT(current_bhp) == 0 &&
-				    (aggressive ||
-				    current_bhp->priority < high_priority) &&
-				    (bhp == NULL ||
-				    bhp->priority > current_bhp->priority)) {
+				if (BH_REFCOUNT(current_bhp) != 0)
+					continue;
+				buffers++;
+				if (bucket_priority > current_bhp->priority) {
+					bucket_priority = current_bhp->priority;
 					if (bhp != NULL)
 						atomic_dec(env, &bhp->ref);
 					bhp = current_bhp;
@@ -304,11 +340,19 @@ retry_search:	bhp = NULL;
 			    mvcc_bhp != NULL;
 			    oldest_bhp = mvcc_bhp,
 			    mvcc_bhp = SH_CHAIN_PREV(mvcc_bhp, vc, __bh)) {
+#ifdef MPOOL_ALLOC_SEARCH_DYN
+				if (aggressive == 0 &&
+				     ++high_priority >= c_mp->lru_priority)
+					aggressive = 1;
+#endif
 				DB_ASSERT(env, mvcc_bhp !=
 				    SH_CHAIN_PREV(mvcc_bhp, vc, __bh));
-				if (aggressive > 1 &&
-				    BH_REFCOUNT(mvcc_bhp) == 0 &&
-				    !F_ISSET(mvcc_bhp, BH_FROZEN) &&
+				if ((aggressive < 2 &&
+				    ++versions < (buffers >> 2)) ||
+				    BH_REFCOUNT(mvcc_bhp) != 0)
+					continue;
+				buffers++;
+				if (!F_ISSET(mvcc_bhp, BH_FROZEN) &&
 				    (bhp == NULL ||
 				    bhp->priority > mvcc_bhp->priority)) {
 					if (bhp != NULL)
@@ -321,29 +365,36 @@ retry_search:	bhp = NULL;
 			/*
 			 * oldest_bhp is the last buffer on the MVCC chain, and
 			 * an obsolete buffer at the end of the MVCC chain gets
-			 * used without further search.
-			 *
-			 * If the buffer isn't obsolete with respect to the
-			 * cached old reader LSN, recalculate the oldest reader
-			 * LSN and check again.
+			 * used without further search. Before checking for
+			 * obsolescence, update the cached oldest reader LSN in
+			 * the bucket if it is older than call's oldest_reader.
 			 */
 			if (BH_REFCOUNT(oldest_bhp) != 0)
 				continue;
 
-retry_obsolete:		if (BH_OBSOLETE(oldest_bhp, hp->old_reader, vlsn)) {
+			if (LOG_COMPARE(&oldest_reader, &hp->old_reader) > 0) {
+				if (IS_MAX_LSN(oldest_reader) &&
+				   (ret = __txn_oldest_reader(
+				    env, &oldest_reader)) != 0) {
+					MUTEX_UNLOCK(env, hp->mtx_hash);
+					if (bhp != NULL)
+						atomic_dec(env, &bhp->ref);
+					return (ret);
+				}
+				if (LOG_COMPARE(&oldest_reader,
+				    &hp->old_reader) > 0)
+					hp->old_reader = oldest_reader;
+			}
+
+			if (BH_OBSOLETE(oldest_bhp, hp->old_reader, vlsn)) {
+				if (aggressive < 2)
+					buffers++;
 				obsolete = 1;
 				if (bhp != NULL)
 					atomic_dec(env, &bhp->ref);
 				bhp = oldest_bhp;
 				atomic_inc(env, &bhp->ref);
 				goto this_buffer;
-			}
-			if (!got_oldest) {
-				if ((ret = __txn_oldest_reader(
-				    env, &hp->old_reader)) != 0)
-					return (ret);
-				got_oldest = 1;
-				goto retry_obsolete;
 			}
 		}
 
@@ -355,14 +406,11 @@ retry_obsolete:		if (BH_OBSOLETE(oldest_bhp, hp->old_reader, vlsn)) {
 		if (bhp == NULL)
 			goto next_hb;
 
-		/* Adjust the priority if the bucket has not been reset. */
 		priority = bhp->priority;
-		if (c_mp->lru_reset != 0 && c_mp->lru_reset <= hp - dbht)
-			priority -= MPOOL_BASE_DECREMENT;
 
 		/*
-		 * Compare two hash buckets and select the one with the lowest
-		 * priority.  Performance testing shows looking at two improves
+		 * Compare two hash buckets and select the one with the lower
+		 * priority. Performance testing showed looking at two improves
 		 * the LRU-ness and looking at more only does a little better.
 		 */
 		if (hp_saved == NULL) {
@@ -409,9 +457,21 @@ retry_obsolete:		if (BH_OBSOLETE(oldest_bhp, hp->old_reader, vlsn)) {
 			goto retry_search;
 		}
 
-this_buffer:	buffers++;
-
 		/*
+		 * If another thread has called __memp_reset_lru() while we were
+		 * looking for this buffer, it is possible that we've picked a
+		 * poor choice for a victim. If so toss it and start over.
+		 */
+		if (lru_generation != c_mp->lru_generation) {
+			DB_ASSERT(env, BH_REFCOUNT(bhp) > 0);
+			atomic_dec(env, &bhp->ref);
+			MUTEX_UNLOCK(env, hp->mtx_hash);
+			MPOOL_REGION_LOCK(env, infop);
+			hp_saved = NULL;
+			goto search;
+		}
+
+this_buffer:	/*
 		 * Discard any previously remembered hash bucket, we've got
 		 * a winner.
 		 */
@@ -443,6 +503,7 @@ this_buffer:	buffers++;
 
 		/* If the page is dirty, write it. */
 		ret = 0;
+		dirty_eviction = 0;
 		if (F_ISSET(bhp, BH_DIRTY)) {
 			DB_ASSERT(env, atomic_read(&hp->hash_page_dirty) > 0);
 			ret = __memp_bhwrite(dbmp, hp, bh_mfp, bhp, 0);
@@ -453,26 +514,24 @@ this_buffer:	buffers++;
 			 *
 			 * If there's a write error and we're having problems
 			 * finding something to allocate, avoid selecting this
-			 * buffer again by raising its priority.
+			 * buffer again by maximizing its priority.
 			 */
 			if (ret != 0) {
-				if (ret != EPERM)
+				if (ret != EPERM && ret != EAGAIN) {
 					write_error++;
-				if (aggressive ||
-				    bhp->priority < c_mp->lru_count)
-					bhp->priority = c_mp->lru_count +
-					     c_mp->pages / MPOOL_PRI_DIRTY;
+					__db_errx(env, DB_STR_A("3018",
+		"%s: unwritable page %d remaining in the cache after error %d",
+					    "%s %d %d"),
+					    __memp_fns(dbmp, bh_mfp),
+					    bhp->pgno, ret);
+				}
+				bhp->priority = MPOOL_LRU_REDZONE;
 
 				goto next_hb;
 			}
 
-			STAT_INC(env, mpool,
-			    dirty_eviction, c_mp->stat.st_rw_evict, infop->id);
-
+			dirty_eviction = 1;
 		}
-		else
-			STAT_INC(env, mpool,
-			    clean_eviction, c_mp->stat.st_ro_evict, infop->id);
 
 		/*
 		 * Freeze this buffer, if necessary.  That is, if the buffer is
@@ -551,6 +610,13 @@ this_buffer:	buffers++;
 			goto retry_search;
 		}
 
+		/* We are certainly freeing this buf; now update statistic. */
+		if (dirty_eviction)
+			STAT_INC(env, mpool,
+			    dirty_eviction, c_mp->stat.st_rw_evict, infop->id);
+		else
+			STAT_INC(env, mpool,
+			    clean_eviction, c_mp->stat.st_ro_evict, infop->id);
 		/*
 		 * If we need some empty buffer headers for freezing, turn the
 		 * buffer we've found into frozen headers and put them on the
@@ -592,8 +658,7 @@ this_buffer:	buffers++;
 		 * If so, we can simply reuse it.  Otherwise, free the buffer
 		 * and its space and keep looking.
 		 */
-		if (mfp != NULL &&
-		    mfp->pagesize == bh_mfp->pagesize) {
+		if (mfp != NULL && mfp->pagesize == bh_mfp->pagesize) {
 			if ((ret = __memp_bhfree(dbmp,
 			     infop, bh_mfp, hp, bhp, 0)) != 0)
 				return (ret);

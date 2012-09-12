@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -15,22 +15,27 @@
 
 #ifndef lint
 static const char copyright[] =
-    "Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.\n";
+    "Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.\n";
 #endif
 
 enum which_open { OPEN_ORIGINAL, OPEN_HOT_BACKUP };
 
-int db_hotbackup_backup_dir_clean __P((DB_ENV *, char *, char *, int *, int, int));
-int db_hotbackup_data_copy __P((DB_ENV *, char *, char *, char *, int, int));
 int db_hotbackup_env_init __P((DB_ENV **,
-     char *, char **, char ***, char *, enum which_open));
+     char *, char **, char ***, char *, enum which_open, int));
 int db_hotbackup_main __P((int, char *[]));
-int db_hotbackup_read_data_dir __P((DB_ENV *, char *, char *, char *, int, int));
-int db_hotbackup_read_log_dir __P((DB_ENV *, char *, int, char *, char *, int *, int, int));
 int db_hotbackup_usage __P((void));
 int db_hotbackup_version_check __P((void));
+void __db_util_msg __P((const DB_ENV *, const char *));
 
 const char *progname;
+
+void __db_util_msg(dbenv, msgstr)
+	const DB_ENV *dbenv;
+	const char *msgstr;
+{
+	COMPQUIET(dbenv, NULL);
+	printf("%s: %s\n", progname, msgstr);
+}
 
 int
 db_hotbackup(args)
@@ -56,10 +61,11 @@ db_hotbackup_main(argc, argv)
 	time_t now;
 	DB_ENV *dbenv;
 	u_int data_cnt, data_next;
-	int ch, checkpoint, copy_min, db_config, exitval;
-	int remove_max, ret, update, verbose, hotbackup_flag_set;
-	char *backup_dir, **data_dir, **dir, *home, *log_dir, *passwd;
+	int ch, checkpoint, db_config, debug, env_copy, exitval;
+	int ret, update, verbose;
+	char *backup_dir, **data_dir, *home, *log_dir, *passwd;
 	char home_buf[DB_MAXPATHLEN], time_buf[CTIME_BUFLEN];
+	u_int32_t flags;
 
 	/*
 	 * Make sure all verbose message are output before any error messages
@@ -81,14 +87,16 @@ db_hotbackup_main(argc, argv)
 	if ((ret = db_hotbackup_version_check()) != 0)
 		return (ret);
 
-	checkpoint = db_config = data_cnt =
-	    data_next = exitval = update = verbose = hotbackup_flag_set = 0;
+	/* We default to the safe environment copy. */
+	env_copy = 1;
+
+	checkpoint = db_config = data_cnt = data_next = debug = 
+	    exitval = update = verbose = 0;
 	data_dir = NULL;
 	backup_dir = home = passwd = NULL;
 	log_dir = NULL;
-	copy_min = remove_max = 0;
 	__db_getopt_reset = 1;
-	while ((ch = getopt(argc, argv, "b:cDd:h:l:P:uVv")) != EOF)
+	while ((ch = getopt(argc, argv, "b:cDd:Fgh:l:P:uVv")) != EOF)
 		switch (ch) {
 		case 'b':
 			backup_dir = optarg;
@@ -110,10 +118,18 @@ db_hotbackup_main(argc, argv)
 				    data_cnt * sizeof(*data_dir))) == NULL) {
 					fprintf(stderr, "%s: %s\n",
 					    progname, strerror(errno));
-					return (EXIT_FAILURE);
+					exitval = (EXIT_FAILURE);
+					goto clean;
 				}
 			}
 			data_dir[data_next++] = optarg;
+			break;
+		case 'F':
+			/* The default is to use environment copy. */
+			env_copy = 0;
+			break;
+		case 'g':
+			debug = 1;
 			break;
 		case 'h':
 			home = optarg;
@@ -122,12 +138,21 @@ db_hotbackup_main(argc, argv)
 			log_dir = optarg;
 			break;
 		case 'P':
+			if (passwd != NULL) {
+				fprintf(stderr, "%s: %s", progname,
+				    DB_STR("5133",
+				    "Password may not be specified twice\n"));
+				free(passwd);
+				return (EXIT_FAILURE);
+			}
 			passwd = strdup(optarg);
 			memset(optarg, 0, strlen(optarg));
 			if (passwd == NULL) {
-				fprintf(stderr, "%s: strdup: %s\n",
-				    progname, strerror(errno));
-				return (EXIT_FAILURE);
+				fprintf(stderr, "%s: ", progname);
+				fprintf(stderr, DB_STR_A("5026",
+				    "strdup: %s\n", "%s\n"), strerror(errno));
+				exitval = (EXIT_FAILURE);
+				goto clean;
 			}
 			break;
 		case 'u':
@@ -135,19 +160,23 @@ db_hotbackup_main(argc, argv)
 			break;
 		case 'V':
 			printf("%s\n", db_version(NULL, NULL, NULL));
-			return (EXIT_SUCCESS);
+			exitval = (EXIT_SUCCESS);
+			goto clean;
 		case 'v':
 			verbose = 1;
 			break;
 		case '?':
 		default:
-			return (db_hotbackup_usage());
+			exitval = db_hotbackup_usage();
+			goto clean;
 		}
 	argc -= optind;
 	argv += optind;
 
-	if (argc != 0)
-		return (db_hotbackup_usage());
+	if (argc != 0) {
+		exitval = db_hotbackup_usage();
+		goto clean;
+	}
 
 	/* NULL-terminate any list of data directories. */
 	if (data_dir != NULL) {
@@ -157,16 +186,20 @@ db_hotbackup_main(argc, argv)
 		 * we must have directories relative to the environment.
 		 */
 		if (checkpoint == 1) {
-			fprintf(stderr,
-				"%s: cannot specify -d and -c\n", progname);
-			return (db_hotbackup_usage());
+			fprintf(stderr, "%s: %s",
+			      DB_STR("5027", "cannot specify -d and -c\n"),
+			      progname);
+			    
+			exitval = db_hotbackup_usage();
+			goto clean;
 		}
 	}
 
 	if (db_config && (data_dir != NULL || log_dir != NULL)) {
-		fprintf(stderr,
-		    "%s: cannot specify -D and -d or -l\n", progname);
-		return (db_hotbackup_usage());
+		fprintf(stderr, "%s: %s", DB_STR("5028",
+		    "cannot specify -D and -d or -l\n"), progname);
+		exitval = db_hotbackup_usage();
+		goto clean;
 	}
 
 	/* Handle possible interruptions. */
@@ -183,80 +216,85 @@ db_hotbackup_main(argc, argv)
 		home = home_buf;
 		if ((ret = __os_getenv(
 		    NULL, "DB_HOME", &home, sizeof(home_buf))) != 0) {
-			fprintf(stderr,
-		    "%s failed to get environment variable DB_HOME: %s\n",
-			    progname, db_strerror(ret));
-			return (EXIT_FAILURE);
+			fprintf(stderr, "%s: ", progname);
+			fprintf(stderr, DB_STR_A("5029",
+		    "failed to get environment variable DB_HOME: %s\n",
+			    "%s"), db_strerror(ret));
+			exitval = (EXIT_FAILURE);
+			goto clean;
 		}
 		/*
 		 * home set to NULL if __os_getenv failed to find DB_HOME.
 		 */
 	}
 	if (home == NULL) {
-		fprintf(stderr,
-		    "%s: no source database environment specified\n", progname);
-		return (db_hotbackup_usage());
+		fprintf(stderr, "%s: %s", DB_STR("5030",
+		    "no source database environment specified\n"), progname);
+		exitval = db_hotbackup_usage();
+		goto clean;
 	}
 	if (backup_dir == NULL) {
-		fprintf(stderr,
-		    "%s: no target backup directory specified\n", progname);
-		return (db_hotbackup_usage());
+		fprintf(stderr, "%s: %s", DB_STR("5031",
+		    "no target backup directory specified\n"),
+		    progname);
+		exitval = db_hotbackup_usage();
+		goto clean;
 	}
 
 	if (verbose) {
 		(void)time(&now);
-		printf("%s: hot backup started at %s",
-		    progname, __os_ctime(&now, time_buf));
+		printf("%s: ", progname);
+		printf(DB_STR_A("5032", "hot backup started at %s",
+		    "%s"), __os_ctime(&now, time_buf));
 	}
 
 	/* Open the source environment. */
 	if (db_hotbackup_env_init(&dbenv, home,
 	     (db_config || log_dir != NULL) ? &log_dir : NULL,
-	     db_config ? &data_dir : NULL,
-	     passwd, OPEN_ORIGINAL) != 0)
+	     &data_dir, passwd, OPEN_ORIGINAL, verbose) != 0)
 		goto err;
-
-	if (log_dir != NULL) {
-		if (db_config && __os_abspath(log_dir)) {
-			fprintf(stderr,
-			    "%s: DB_CONFIG must not contain an absolute " \
-			    "path for the log directory\n", progname);
+	
+	if (env_copy) {
+		if ((ret = dbenv->get_open_flags(dbenv, &flags)) != 0)
+			goto err;
+		if (flags & DB_PRIVATE) {
+			fprintf(stderr, "%s: %s", progname,  DB_STR("5129",
+			    "Cannot copy data from a PRIVATE environment\n"));
 			goto err;
 		}
 	}
 
-	/*
-	 * Record in the environment that a hot backup is in progress.
-	 * This disables the bulk loading optimization for the
-	 * duration of the backup.  This increments a persistent
-	 * counter in the database's environment, so it is essential
-	 * that the corresponding decrement takes place upon
-	 * completion of the backup.
-	 */
-	if ((ret = dbenv->set_flags(dbenv, DB_HOTBACKUP_IN_PROGRESS, 1))) {
-		fprintf(stderr,
-		    "%s: dbenv->set_flags(DB_HOTBACKUP_IN_PROGRESS, 1): %s\n",
-			progname, db_strerror(ret));
-		goto err;
+	if (log_dir != NULL) {
+		if (db_config && __os_abspath(log_dir)) {
+			fprintf(stderr, "%s: %s", progname, DB_STR("5033",
+			    "DB_CONFIG must not contain an absolute "
+			    "path for the log directory\n"));
+			goto err;
+		}
 	}
-	hotbackup_flag_set = 1;
 
 	/*
 	 * If the -c option is specified, checkpoint the source home
 	 * database environment, and remove any unnecessary log files.
 	 */
 	if (checkpoint) {
-		if (verbose)
-			printf("%s: %s: force checkpoint\n", progname, home);
+		if (verbose) {
+			printf("%s: ", progname);
+			printf(DB_STR_A("5035", "%s: force checkpoint\n",
+			    "%s"), home);
+		}
 		if ((ret =
 		    dbenv->txn_checkpoint(dbenv, 0, 0, DB_FORCE)) != 0) {
 			dbenv->err(dbenv, ret, "DB_ENV->txn_checkpoint");
 			goto err;
 		}
 		if (!update) {
-			if (verbose)
-				printf("%s: %s: remove unnecessary log files\n",
-				    progname, home);
+			if (verbose) {
+				printf("%s: ", progname);
+				printf(DB_STR_A("5036",
+				    "%s: remove unnecessary log files\n",
+				    "%s"), home);
+			}
 			if ((ret = dbenv->log_archive(dbenv,
 			     NULL, DB_ARCH_REMOVE)) != 0) {
 				dbenv->err(dbenv, ret, "DB_ENV->log_archive");
@@ -265,94 +303,14 @@ db_hotbackup_main(argc, argv)
 		}
 	}
 
-	/*
-	 * If the target directory for the backup does not exist, create it
-	 * with mode read-write-execute for the owner.  Ignore errors here,
-	 * it's simpler and more portable to just always try the create.  If
-	 * there's a problem, we'll fail with reasonable errors later.
-	 */
-	(void)__os_mkdir(NULL, backup_dir, DB_MODE_700);
+	flags = DB_CREATE | DB_BACKUP_CLEAN | DB_BACKUP_FILES;
+	if (update)
+		LF_SET(DB_BACKUP_UPDATE);
 
-	/*
-	 * If -u was specified, remove all log files; if -u was not specified,
-	 * remove all files.
-	 *
-	 * Potentially there are two directories to clean, the log directory
-	 * and the target directory.  First, clean up the log directory if
-	 * it's different from the target directory, then clean up the target
-	 * directory.
-	 */
-	if (db_config && log_dir != NULL &&
-	    db_hotbackup_backup_dir_clean(
-	    dbenv, backup_dir, log_dir, &remove_max, update, verbose) != 0)
+	if (!db_config)
+		LF_SET(DB_BACKUP_SINGLE_DIR);
+	if ((ret = dbenv->backup(dbenv, backup_dir, flags)) != 0)
 		goto err;
-	if (db_hotbackup_backup_dir_clean(dbenv,
-	    backup_dir, NULL, &remove_max, update, verbose) != 0)
-		goto err;
-
-	/*
-	 * If the -u option was not specified, copy all database files found in
-	 * the database environment home directory, or any directory specified
-	 * using the -d option, into the target directory for the backup.
-	 */
-	if (!update) {
-		if (db_hotbackup_read_data_dir(dbenv, home,
-		     backup_dir, home, verbose, db_config) != 0)
-			goto err;
-		if (data_dir != NULL)
-			for (dir = data_dir; *dir != NULL; ++dir) {
-				/*
-				 * Don't allow absolute path names taken from
-				 * the DB_CONFIG file -- running recovery with
-				 * them would corrupt the source files.
-				 */
-				if (db_config && __os_abspath(*dir)) {
-					fprintf(stderr,
-     "%s: data directory '%s' is absolute path, not permitted with -D option\n",
-					     progname, *dir);
-					goto err;
-				}
-				if (db_hotbackup_read_data_dir(dbenv, home,
-				     backup_dir, *dir, verbose, db_config) != 0)
-					goto err;
-			}
-	}
-
-	/*
-	 * Copy all log files found in the directory specified by the -l option
-	 * (or in the database environment home directory, if no -l option was
-	 * specified), into the target directory for the backup.
-	 *
-	 * The log directory defaults to the home directory.
-	 */
-	if (db_hotbackup_read_log_dir(dbenv, home, db_config, backup_dir,
-	     log_dir, &copy_min, update, verbose) != 0)
-		goto err;
-	/*
-	 * If we're updating a snapshot, the lowest-numbered log file copied
-	 * into the backup directory should be less than, or equal to, the
-	 * highest-numbered log file removed from the backup directory during
-	 * cleanup.
-	 */
-	if (update && remove_max < copy_min &&
-	     !(remove_max == 0 && copy_min == 1)) {
-		fprintf(stderr,
-		    "%s: the largest log file removed (%d) must be greater\n",
-		    progname, remove_max);
-		fprintf(stderr,
-		    "%s: than or equal the smallest log file copied (%d)\n",
-		    progname, copy_min);
-		goto err;
-	}
-
-	/* Turn off the hotbackup flag in the environment now. */
-	if ((ret = dbenv->set_flags(dbenv, DB_HOTBACKUP_IN_PROGRESS, 0))) {
-		fprintf(stderr,
-		    "%s: dbenv->set_flags(DB_HOTBACKUP_IN_PROGRESS, 0): %s\n",
-			progname, db_strerror(ret));
-		goto err;
-	}
-	hotbackup_flag_set = 0;
 
 	/* Close the source environment. */
 	if ((ret = dbenv->close(dbenv, 0)) != 0) {
@@ -362,35 +320,38 @@ db_hotbackup_main(argc, argv)
 		goto err;
 	}
 	/* Perform catastrophic recovery on the hot backup. */
-	if (verbose)
-		printf("%s: %s: run catastrophic recovery\n",
-		    progname, backup_dir);
-	if (db_hotbackup_env_init(
-	    &dbenv, backup_dir, NULL, NULL, passwd, OPEN_HOT_BACKUP) != 0)
+	if (verbose) {
+		printf("%s: ", progname);
+		printf(DB_STR_A("5040", "%s: run catastrophic recovery\n",
+		    "%s"), backup_dir);
+	}
+	if (db_hotbackup_env_init(&dbenv,
+	    backup_dir, NULL, NULL, passwd, OPEN_HOT_BACKUP, verbose) != 0)
 		goto err;
 
 	/*
 	 * Remove any unnecessary log files from the hot backup.
+	 * For debugging purposes, leave them around.
 	 */
-	if (verbose)
-		printf("%s: %s: remove unnecessary log files\n",
-		    progname, backup_dir);
-	if ((ret =
-	    dbenv->log_archive(dbenv, NULL, DB_ARCH_REMOVE)) != 0) {
-		dbenv->err(dbenv, ret, "DB_ENV->log_archive");
-		goto err;
+	if (debug == 0) {
+		if (verbose) {
+			printf("%s: ", progname);
+			printf(DB_STR_A("5041",
+			    "%s: remove unnecessary log files\n",
+			    "%s"), backup_dir);
+		}
+
+		if ((ret =
+		    dbenv->log_archive(dbenv, NULL, DB_ARCH_REMOVE)) != 0) {
+			dbenv->err(dbenv, ret, "DB_ENV->log_archive");
+			goto err;
+		}
 	}
 
 	if (0) {
 err:		exitval = 1;
 	}
-	if (hotbackup_flag_set &&
-	    (ret = dbenv->set_flags(dbenv, DB_HOTBACKUP_IN_PROGRESS, 0))) {
-		exitval = 1;
-		fprintf(stderr,
-		    "%s: dbenv->set_flags(DB_HOTBACKUP_IN_PROGRESS, 0): %s\n",
-			progname, db_strerror(ret));
-	}
+
 	if (dbenv != NULL && (ret = dbenv->close(dbenv, 0)) != 0) {
 		exitval = 1;
 		fprintf(stderr,
@@ -400,18 +361,26 @@ err:		exitval = 1;
 	if (exitval == 0) {
 		if (verbose) {
 			(void)time(&now);
-			printf("%s: hot backup completed at %s",
-			    progname, __os_ctime(&now, time_buf));
+			printf("%s: ", progname);
+			printf(DB_STR_A("5042",
+			    "hot backup completed at %s", "%s"),
+			    __os_ctime(&now, time_buf));
 		}
 	} else {
-		fprintf(stderr, "%s: HOT BACKUP FAILED!\n", progname);
+		fprintf(stderr, "%s: %s", progname,
+		     DB_STR("5043", "HOT BACKUP FAILED!\n"));
 	}
 
 	/* Resend any caught signal. */
 	__db_util_sigresend();
 
-	return (exitval == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+clean:
+	if (data_cnt > 0)
+		free(data_dir);
+	if (passwd != NULL)
+		free(passwd);
 
+	return (exitval == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
 /*
@@ -419,13 +388,16 @@ err:		exitval = 1;
  *	Open a database environment.
  */
 int
-db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
+db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which, verbose)
 	DB_ENV **dbenvp;
 	char *home, **log_dirp, ***data_dirp, *passwd;
 	enum which_open which;
+	int verbose;
 {
 	DB_ENV *dbenv;
-	int ret;
+	const char *log_dir, **data_dir;
+	char buf[DB_MAXPATHLEN];
+	int homehome, ret;
 
 	*dbenvp = NULL;
 
@@ -438,6 +410,10 @@ db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
 		return (1);
 	}
 
+	if (verbose) {
+		(void)dbenv->set_verbose(dbenv, DB_VERB_BACKUP, 1);
+		dbenv->set_msgcall(dbenv, __db_util_msg);
+	}
 	dbenv->set_errfile(dbenv, stderr);
 	setbuf(stderr, NULL);
 	dbenv->set_errpfx(dbenv, progname);
@@ -467,6 +443,41 @@ db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
 
 	switch (which) {
 	case OPEN_ORIGINAL:
+		if (data_dirp != NULL && *data_dirp != NULL) {
+			/*
+			 * Backward compatibility: older versions 
+			 * did not have data dirs relative to home.
+			 * Check to see if there is a sub-directory with
+			 * the same name has the home directory.  If not
+			 * trim the home directory from the data directory
+			 * passed in.
+			 */
+			(void) sprintf(buf, "%s/%s", home, home);
+			homehome = 0;
+			(void)__os_exists(dbenv->env, buf, &homehome);
+				
+			for (data_dir = (const char **)*data_dirp;
+			    *data_dir != NULL; data_dir++) {
+				if (!homehome &&
+				    !strncmp(home, *data_dir, strlen(home))) {
+					if (strchr(PATH_SEPARATOR,
+					    (*data_dir)[strlen(home)]) != NULL)
+						(*data_dir) += strlen(home) + 1;
+					/* Just in case an extra / was added. */
+					else if (strchr(PATH_SEPARATOR,
+					    home[strlen(home) - 1]) != NULL)
+						(*data_dir) += strlen(home);
+				}
+
+			    	if ((ret = dbenv->add_data_dir(
+				    dbenv, *data_dir)) != 0) {
+					dbenv->err(dbenv, ret,
+					    "DB_ENV->add_data_dir: %s",
+					    *data_dir);
+					return (1);
+				}
+			}
+		}
 		/*
 		 * Opening the database environment we're trying to back up.
 		 * We try to attach to a pre-existing environment; if that
@@ -480,8 +491,21 @@ db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
 			dbenv->err(dbenv, ret, "DB_ENV->open: %s", home);
 			return (1);
 		}
-		if (log_dirp != NULL && *log_dirp == NULL)
-			(void)dbenv->get_lg_dir(dbenv, (const char **)log_dirp);
+		if (log_dirp != NULL) {
+			(void)dbenv->get_lg_dir(dbenv, &log_dir);
+			if (*log_dirp == NULL)
+				*log_dirp = (char*)log_dir;
+			else if (strcmp(*log_dirp, log_dir)) {
+				fprintf(stderr, DB_STR_A("5057",
+		    "%s: cannot specify -l with conflicting DB_CONFIG file\n",
+				    "%s\n"), progname);
+				return (db_hotbackup_usage());
+			} else {
+				fprintf(stderr, "%s: %s", DB_STR("5058",
+			    "use of -l with DB_CONFIG file is deprecated\n"),
+				    progname);
+			}
+		}
 		if (data_dirp != NULL && *data_dirp == NULL)
 			(void)dbenv->get_data_dirs(
 			    dbenv, (const char ***)data_dirp);
@@ -499,6 +523,8 @@ db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
 			     ret, "DB_ENV->set_cachesize: %s", home);
 			return (1);
 		}
+		if (verbose == 1)
+			(void)dbenv->set_verbose(dbenv, DB_VERB_RECOVERY, 1);
 		if ((ret = dbenv->open(dbenv, home, DB_CREATE |
 		    DB_INIT_LOG | DB_INIT_MPOOL | DB_INIT_TXN | DB_PRIVATE |
 		    DB_RECOVER_FATAL | DB_USE_ENVIRON, 0)) != 0) {
@@ -510,445 +536,6 @@ db_hotbackup_env_init(dbenvp, home, log_dirp, data_dirp, passwd, which)
 
 	*dbenvp = dbenv;
 	return (0);
-}
-
-/*
- * backup_dir_clean --
- *	Clean out the backup directory.
- */
-int
-db_hotbackup_backup_dir_clean(dbenv, backup_dir, log_dir, remove_maxp, update, verbose)
-	DB_ENV *dbenv;
-	char *backup_dir, *log_dir;
-	int *remove_maxp, update, verbose;
-{
-	ENV *env;
-	int cnt, fcnt, ret, v;
-	char **names, *dir, buf[DB_MAXPATHLEN], path[DB_MAXPATHLEN];
-
-	env = dbenv->env;
-
-	/* We may be cleaning a log directory separate from the target. */
-	if (log_dir != NULL) {
-		if ((size_t)snprintf(buf, sizeof(buf), "%s%c%s",
-		    backup_dir, PATH_SEPARATOR[0] ,log_dir) >= sizeof(buf)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    backup_dir, PATH_SEPARATOR[0] ,log_dir);
-			return (1);
-		}
-		dir = buf;
-	} else
-		dir = backup_dir;
-
-	/* Get a list of file names. */
-	if ((ret = __os_dirlist(env, dir, 0, &names, &fcnt)) != 0) {
-		if (log_dir != NULL && !update)
-			return (0);
-		dbenv->err(dbenv, ret, "%s: directory read", dir);
-		return (1);
-	}
-	for (cnt = fcnt; --cnt >= 0;) {
-		/*
-		 * Skip non-log files (if update was specified).
-		 */
-		if (strncmp(names[cnt], LFPREFIX, sizeof(LFPREFIX) - 1)) {
-			if (update)
-				continue;
-		} else {
-			/* Track the highest-numbered log file removed. */
-			v = atoi(names[cnt] + sizeof(LFPREFIX) - 1);
-			if (*remove_maxp < v)
-				*remove_maxp = v;
-		}
-		if ((size_t)snprintf(path, sizeof(path), "%s%c%s",
-		    dir, PATH_SEPARATOR[0], names[cnt]) >= sizeof(path)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    dir, PATH_SEPARATOR[0], names[cnt]);
-			return (1);
-		}
-		if (verbose)
-			printf("%s: removing %s\n", progname, path);
-		if (__os_unlink(env, path, 0) != 0)
-			return (1);
-	}
-
-	__os_dirfree(env, names, fcnt);
-
-	if (verbose && *remove_maxp != 0)
-		printf("%s: highest numbered log file removed: %d\n",
-		    progname, *remove_maxp);
-
-	return (0);
-}
-
-/*
- * read_data_dir --
- *	Read a directory looking for databases to copy.
- */
-int
-db_hotbackup_read_data_dir(dbenv, home, backup_dir, dir, verbose, db_config)
-	DB_ENV *dbenv;
-	char *home, *backup_dir, *dir;
-	int verbose, db_config;
-{
-	ENV *env;
-	int cnt, fcnt, ret;
-	char *bd, **names;
-	char buf[DB_MAXPATHLEN], bbuf[DB_MAXPATHLEN];
-
-	env = dbenv->env;
-
-	bd = backup_dir;
-	if (db_config && dir != home) {
-		/* Build a path name to the destination. */
-		if ((size_t)(cnt = snprintf(bbuf, sizeof(bbuf), "%s%c%s%c",
-		      backup_dir, PATH_SEPARATOR[0],
-		      dir, PATH_SEPARATOR[0])) >= sizeof(buf)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			     backup_dir, PATH_SEPARATOR[0], dir);
-			return (1);
-		}
-		bd = bbuf;
-
-		/* Create the path. */
-		if ((ret = __db_mkpath(env, bd)) != 0) {
-			dbenv->err(dbenv, ret, "%s: cannot create", bd);
-			return (1);
-		}
-		/* step on the trailing '/' */
-		bd[cnt - 1] = '\0';
-
-		/* Build a path name to the source. */
-		if ((size_t)snprintf(buf, sizeof(buf),
-		    "%s%c%s", home, PATH_SEPARATOR[0], dir) >= sizeof(buf)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    home, PATH_SEPARATOR[0], dir);
-			return (1);
-		}
-		dir = buf;
-	}
-	/* Get a list of file names. */
-	if ((ret = __os_dirlist(env, dir, 0, &names, &fcnt)) != 0) {
-		dbenv->err(dbenv, ret, "%s: directory read", dir);
-		return (1);
-	}
-	for (cnt = fcnt; --cnt >= 0;) {
-		/*
-		 * Skip files in DB's name space (but not Queue extent files or
-		 * the replicated system database, we need them).
-		 */
-		if (!strncmp(names[cnt], LFPREFIX, sizeof(LFPREFIX) - 1))
-			continue;
-		if (!strncmp(names[cnt],
-		    DB_REGION_PREFIX, sizeof(DB_REGION_PREFIX) - 1) &&
-		    strncmp(names[cnt],
-		    QUEUE_EXTENT_PREFIX, sizeof(QUEUE_EXTENT_PREFIX) - 1) &&
-		    strncmp(names[cnt],
-		    REPSYSDBNAME, sizeof(REPSYSDBNAME) - 1))
-			continue;
-
-		/*
-		 * Skip DB_CONFIG.
-		 */
-		if (!db_config &&
-		     !strncmp(names[cnt], "DB_CONFIG", sizeof("DB_CONFIG")))
-			continue;
-
-		/* Copy the file. */
-		if (db_hotbackup_data_copy(dbenv, names[cnt], dir, bd, 0, verbose) != 0)
-			return (1);
-	}
-
-	__os_dirfree(env, names, fcnt);
-
-	return (0);
-}
-
-/*
- * read_log_dir --
- *	Read a directory looking for log files to copy.  If home
- * is passed then we are possibly using a log dir in the destination,
- * following DB_CONFIG configuration.
- */
-int
-db_hotbackup_read_log_dir(dbenv, home, db_config, backup_dir, log_dir, copy_minp,
-	update, verbose)
-	DB_ENV *dbenv;
-	char *home, *backup_dir, *log_dir;
-	int *copy_minp, db_config, update, verbose;
-{
-	ENV *env;
-	u_int32_t aflag;
-	int cnt, ret, v;
-	char **begin, **names, *backupd, *logd;
-	char from[DB_MAXPATHLEN], to[DB_MAXPATHLEN];
-	char cfpath[DB_MAXPATHLEN];
-
-	env = dbenv->env;
-
-	/*
-	 * If the log directory is specified from DB_CONFIG then it is
-	 * located relative to the the log file source dircectory.  If
-	 * the log directory is set from the -l argument and it is not an
-	 * absolute path it is also located relative to the log file source
-	 * directory.  Otherwise the log file source directory is home.
-	 */
-	if (db_config && log_dir != NULL) {
-		if ((size_t)snprintf(from, sizeof(from), "%s%c%s",
-		    home, PATH_SEPARATOR[0], log_dir) >= sizeof(from)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    home, PATH_SEPARATOR[0], log_dir);
-			return (1);
-		}
-		logd = strdup(from);
-
-		/*
-		 * With a DB_CONFIG file, logs are copied to the specified
-		 * location relative to the backup_dir.  Otherwise the logs are
-		 * copied to the backup_dir.
-		 */
-		if ((size_t)(cnt = snprintf(to, sizeof(to),
-		    "%s%c%s%c", backup_dir, PATH_SEPARATOR[0],
-		    log_dir, PATH_SEPARATOR[0])) >= sizeof(to)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    backup_dir, PATH_SEPARATOR[0], log_dir);
-			return (1);
-		}
-		backupd = strdup(to);
-
-		/* Create the backup log directory. */
-		if ((ret = __db_mkpath(env, backupd)) != 0) {
-			dbenv->err(dbenv, ret, "%s: cannot create", backupd);
-			return (1);
-		}
-		/* Step on the trailing '/'. */
-		backupd[cnt - 1] = '\0';
-	} else {
-		if (log_dir == NULL)
-			logd = log_dir = home;
-		else {
-			logd = log_dir;
-
-			/*
-			 * Do we have -l and an existing DB_CONFIG?  That is a
-			 * usage problem, but for backward compatibility, keep
-			 * going if log_dir happens to be the same as the
-			 * DB_CONFIG path.
-			 */
-			if ((size_t)snprintf(cfpath, sizeof(cfpath),
-			    "%s%c%s", home, PATH_SEPARATOR[0], "DB_CONFIG") >=
-			    sizeof(cfpath)) {
-				dbenv->errx(dbenv,"%s%c%s: path too long", home,
-				    PATH_SEPARATOR[0], "DB_CONFIG");
-				return (1);
-			}
-			if (__os_exists(NULL, cfpath, NULL) == 0) {
-				if (strcmp(log_dir,dbenv->db_log_dir)) {
-					fprintf(stderr,
-		"%s: cannot specify -l with conflicting DB_CONFIG file\n",
-					    progname);
-					return (db_hotbackup_usage());
-				} else
-					fprintf(stderr,
-		"%s: use of -l with DB_CONFIG file is deprecated\n",
-					    progname);
-			}
-
-			if (!__os_abspath(logd)) {
-				if ((size_t)snprintf(from, sizeof(from),
-				    "%s%c%s", home, PATH_SEPARATOR[0], log_dir)
-				    >= sizeof(from)) {
-					dbenv->errx(dbenv, "%s%c%s: path too" \
-					    " long", home, PATH_SEPARATOR[0],
-					    log_dir);
-					return 1;
-				}
-				logd = strdup(from);
-			}
-		}
-		backupd = backup_dir;
-	}
-
-again:	aflag = DB_ARCH_LOG;
-
-	/*
-	 * If this is an update and we are deleting files, first process
-	 * those files that can be removed, then repeat with the rest.
-	 */
-	if (update)
-		aflag = 0;
-	/* Get a list of file names to be copied. */
-	if ((ret = dbenv->log_archive(dbenv, &names, aflag)) != 0) {
-		dbenv->err(dbenv, ret, "DB_ENV->log_archive");
-		return (1);
-	}
-	if (names == NULL)
-		goto done;
-	begin = names;
-	for (; *names != NULL; names++) {
-		/* Track the lowest-numbered log file copied. */
-		v = atoi(*names + sizeof(LFPREFIX) - 1);
-		if (*copy_minp == 0 || *copy_minp > v)
-			*copy_minp = v;
-
-		if ((size_t)snprintf(from, sizeof(from), "%s%c%s",
-		    logd, PATH_SEPARATOR[0], *names) >= sizeof(from)) {
-			dbenv->errx(dbenv, "%s%c%s: path too long",
-			    logd, PATH_SEPARATOR[0], *names);
-			return (1);
-		}
-
-		/*
-		 * If we're going to remove the file, attempt to rename the
-		 * instead of copying and then removing.  The likely failure
-		 * is EXDEV (source and destination are on different volumes).
-		 * Fall back to a copy, regardless of the error.  We don't
-		 * worry about partial contents, the copy truncates the file
-		 * on open.
-		 */
-		if (update) {
-			if ((size_t)snprintf(to, sizeof(to), "%s%c%s",
-			    backupd, PATH_SEPARATOR[0], *names) >= sizeof(to)) {
-				dbenv->errx(dbenv, "%s%c%s: path too long",
-				    backupd, PATH_SEPARATOR[0], *names);
-				return (1);
-			}
-			if (__os_rename(env, from, to, 1) == 0) {
-				if (verbose)
-					printf("%s: moving %s to %s\n",
-					   progname, from, to);
-				continue;
-			}
-		}
-
-		/* Copy the file. */
-		if (db_hotbackup_data_copy(dbenv, *names, logd, backupd, 1, verbose) != 0)
-			return (1);
-
-		if (update) {
-			if (verbose)
-				printf("%s: removing %s\n", progname, from);
-			if ((ret = __os_unlink(env, from, 0)) != 0) {
-				dbenv->err(dbenv, ret,
-				     "unlink of %s failed", from);
-				return (1);
-			}
-		}
-
-	}
-
-	free(begin);
-done:	if (update) {
-		update = 0;
-		goto again;
-	}
-
-	if (verbose && *copy_minp != 0)
-		printf("%s: lowest numbered log file copied: %d\n",
-		    progname, *copy_minp);
-	if (logd != log_dir)
-		free(logd);
-	if (backupd != backup_dir)
-		free(backupd);
-
-	return (0);
-}
-
-/*
- * data_copy --
- *	Copy a file into the backup directory.
- */
-int
-db_hotbackup_data_copy(dbenv, file, from_dir, to_dir, log, verbose)
-	DB_ENV *dbenv;
-	char *file, *from_dir, *to_dir;
-	int log, verbose;
-{
-	DB_FH *rfhp, *wfhp;
-	ENV *env;
-	size_t nr, nw;
-	int ret;
-	char *buf;
-
-	rfhp = wfhp = NULL;
-	env = dbenv->env;
-	ret = 0;
-
-	if (verbose)
-		printf("%s: copying %s%c%s to %s%c%s\n", progname, from_dir,
-		    PATH_SEPARATOR[0], file, to_dir, PATH_SEPARATOR[0], file);
-
-	/*
-	 * We MUST copy multiples of the page size, atomically, to ensure a
-	 * database page is not updated by another thread of control during
-	 * the copy.
-	 *
-	 * !!!
-	 * The current maximum page size for Berkeley DB is 64KB; we will have
-	 * to increase this value if the maximum page size is ever more than a
-	 * megabyte
-	 */
-	if ((buf = malloc(MEGABYTE)) == NULL) {
-		dbenv->err(dbenv,
-		    errno, "%lu buffer allocation", (u_long)MEGABYTE);
-		return (1);
-	}
-
-	/* Open the input file. */
-	if (snprintf(buf, MEGABYTE, "%s%c%s",
-	    from_dir, PATH_SEPARATOR[0], file) >= MEGABYTE) {
-		dbenv->errx(dbenv,
-		    "%s%c%s: path too long", from_dir, PATH_SEPARATOR[0], file);
-		goto err;
-	}
-	if ((ret = __os_open(env, buf, 0, DB_OSO_RDONLY, 0, &rfhp)) != 0) {
-		if (ret == ENOENT && !log) {
-			ret = 0;
-			if (verbose)
-				printf("%s: %s%c%s not present\n", progname,
-				    from_dir, PATH_SEPARATOR[0], file);
-			goto done;
-		}
-		dbenv->err(dbenv, ret, "%s", buf);
-		goto err;
-	}
-
-	/* Open the output file. */
-	if (snprintf(buf, MEGABYTE, "%s%c%s",
-	    to_dir, PATH_SEPARATOR[0], file) >= MEGABYTE) {
-		dbenv->errx(dbenv,
-		    "%s%c%s: path too long", to_dir, PATH_SEPARATOR[0], file);
-		goto err;
-	}
-	if ((ret = __os_open(env, buf, 0,
-	    DB_OSO_CREATE | DB_OSO_TRUNC, DB_MODE_600, &wfhp)) != 0) {
-		dbenv->err(dbenv, ret, "%s", buf);
-		goto err;
-	}
-
-	/* Copy the data. */
-	while ((ret = __os_read(env, rfhp, buf, MEGABYTE, &nr)) == 0 &&
-	    nr > 0)
-		if ((ret = __os_write(env, wfhp, buf, nr, &nw)) != 0)
-			break;
-
-	if (0) {
-err:		ret = 1;
-	}
-done:	if (buf != NULL)
-		free(buf);
-
-	if (rfhp != NULL && __os_closehandle(env, rfhp) != 0)
-		ret = 1;
-
-	/* We may be running on a remote filesystem; force the flush. */
-	if (wfhp != NULL) {
-		if (__os_fsync(env, wfhp) != 0)
-			ret = 1;
-		if (__os_closehandle(env, wfhp) != 0)
-			ret = 1;
-	}
-	return (ret);
 }
 
 int
@@ -967,9 +554,11 @@ db_hotbackup_version_check()
 	/* Make sure we're loaded with the right version of the DB library. */
 	(void)db_version(&v_major, &v_minor, &v_patch);
 	if (v_major != DB_VERSION_MAJOR || v_minor != DB_VERSION_MINOR) {
-		fprintf(stderr,
-	"%s: version %d.%d doesn't match library version %d.%d\n",
-		    progname, DB_VERSION_MAJOR, DB_VERSION_MINOR,
+		fprintf(stderr, "%s: ", progname);
+		fprintf(stderr, DB_STR_A("5071",
+		    "version %d.%d doesn't match library version %d.%d\n",
+		    "%d %d %d %d\n"),
+		    DB_VERSION_MAJOR, DB_VERSION_MINOR,
 		    v_major, v_minor);
 		return (EXIT_FAILURE);
 	}

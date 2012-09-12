@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1996, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1996, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -94,6 +94,9 @@ __dbreg_setup(dbp, fname, dname, create_txnid)
 	DB_LOG *dblp;
 	ENV *env;
 	FNAME *fnp;
+#ifdef HAVE_STATISTICS
+	LOG *lp;
+#endif
 	REGINFO *infop;
 	int ret;
 	size_t len;
@@ -110,6 +113,13 @@ __dbreg_setup(dbp, fname, dname, create_txnid)
 	LOG_SYSTEM_LOCK(env);
 	if ((ret = __env_alloc(infop, sizeof(FNAME), &fnp)) != 0)
 		goto err;
+
+#ifdef HAVE_STATISTICS
+	lp = dblp->reginfo.primary;
+	if (++lp->stat.st_nfileid > lp->stat.st_maxnfileid)
+		lp->stat.st_maxnfileid = lp->stat.st_nfileid;
+#endif
+
 	memset(fnp, 0, sizeof(FNAME));
 	if (fname == NULL)
 		fnp->fname_off = INVALID_ROFF;
@@ -157,6 +167,8 @@ __dbreg_setup(dbp, fname, dname, create_txnid)
 		F_SET(fnp, DBREG_CHKSUM);
 	if (F_ISSET(dbp, DB_AM_ENCRYPT))
 		F_SET(fnp, DBREG_ENCRYPT);
+	if (F2_ISSET(dbp, DB2_AM_EXCL))
+		F_SET(fnp, DBREG_EXCL);
 	fnp->txn_ref = 1;
 	fnp->mutex = dbp->mutex;
 
@@ -166,8 +178,8 @@ __dbreg_setup(dbp, fname, dname, create_txnid)
 
 err:	LOG_SYSTEM_UNLOCK(env);
 	if (ret == ENOMEM)
-		__db_errx(env,
-    "Logging region out of memory; you may need to increase its size");
+		__db_errx(env, DB_STR("1501",
+    "Logging region out of memory; you may need to increase its size"));
 
 	return (ret);
 }
@@ -213,6 +225,9 @@ __dbreg_teardown_int(env, fnp)
 	FNAME *fnp;
 {
 	DB_LOG *dblp;
+#ifdef HAVE_STATISTICS
+	LOG *lp;
+#endif
 	REGINFO *infop;
 	int ret;
 
@@ -220,6 +235,9 @@ __dbreg_teardown_int(env, fnp)
 		return (0);
 	dblp = env->lg_handle;
 	infop = &dblp->reginfo;
+#ifdef HAVE_STATISTICS
+	lp = dblp->reginfo.primary;
+#endif
 
 	DB_ASSERT(env, fnp->id == DB_LOGFILEID_INVALID);
 	ret = __mutex_free(env, &fnp->mutex);
@@ -230,6 +248,7 @@ __dbreg_teardown_int(env, fnp)
 	if (fnp->dname_off != INVALID_ROFF)
 		__env_alloc_free(infop, R_ADDR(infop, fnp->dname_off));
 	__env_alloc_free(infop, fnp);
+	STAT(lp->stat.st_nfileid--);
 	LOG_SYSTEM_UNLOCK(env);
 
 	return (ret);
@@ -689,9 +708,12 @@ __dbreg_failchk(env)
 	LOG *lp;
 	int ret, t_ret;
 	char buf[DB_THREADID_STRLEN];
+	db_threadid_t unused;
 
 	if ((dblp = env->lg_handle) == NULL)
 		return (0);
+
+	DB_THREADID_INIT(unused);
 
 	lp = dblp->reginfo.primary;
 	dbenv = env->dbenv;
@@ -700,12 +722,14 @@ __dbreg_failchk(env)
 	MUTEX_LOCK(env, lp->mtx_filelist);
 	for (fnp = SH_TAILQ_FIRST(&lp->fq, __fname); fnp != NULL; fnp = nnp) {
 		nnp = SH_TAILQ_NEXT(fnp, q, __fname);
-		if (dbenv->is_alive(dbenv, fnp->pid, 0, DB_MUTEX_PROCESS_ONLY))
+		if (dbenv->is_alive(dbenv, 
+		    fnp->pid, unused, DB_MUTEX_PROCESS_ONLY))
 			continue;
 		MUTEX_LOCK(env, fnp->mutex);
-		__db_msg(env,
+		__db_msg(env, DB_STR_A("1502",
 		    "Freeing log information for process: %s, (ref %lu)",
-		    dbenv->thread_id_string(dbenv, fnp->pid, 0, buf),
+		    "%s %lu"),
+		    dbenv->thread_id_string(dbenv, fnp->pid, unused, buf),
 		    (u_long)fnp->txn_ref);
 		if (fnp->txn_ref > 1 || F_ISSET(fnp, DB_FNAME_CLOSED)) {
 			if (!F_ISSET(fnp, DB_FNAME_CLOSED)) {
@@ -972,7 +996,9 @@ __dbreg_log_id(dbp, txn, id, needlock)
 	fid_dbt.size = DB_FILE_ID_LEN;
 
 	op = !F_ISSET(dbp, DB_AM_OPEN_CALLED) ? DBREG_PREOPEN :
-	    (F_ISSET(dbp, DB_AM_INMEM) ? DBREG_REOPEN : DBREG_OPEN);
+	    (F_ISSET(dbp, DB_AM_INMEM) ? 
+	    (F2_ISSET(dbp, DB2_AM_EXCL) ? DBREG_XREOPEN : DBREG_REOPEN):
+	    (F2_ISSET(dbp, DB2_AM_EXCL) ? DBREG_XOPEN : DBREG_OPEN));
 	ret = __dbreg_register_log(env, txn, &unused,
 	    F_ISSET(dbp, DB_AM_NOT_DURABLE) ? DB_LOG_NOT_DURABLE : 0,
 	    op | F_ISSET(fnp, DB_FNAME_DBREG_MASK),

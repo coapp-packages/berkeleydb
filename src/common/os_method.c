@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -9,6 +9,18 @@
 #include "db_config.h"
 
 #include "db_int.h"
+
+/*
+ * EXTERN: int db_env_set_func_assert
+ * EXTERN:     __P((void (*)(const char *, const char *, int)));
+ */
+int
+db_env_set_func_assert(func_assert)
+	void (*func_assert) __P((const char *, const char *, int));
+{
+	DB_GLOBAL(j_assert) = func_assert;
+	return (0);
+}
 
 /*
  * EXTERN: int db_env_set_func_close __P((int (*)(int)));

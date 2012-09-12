@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -13,6 +13,7 @@
 #include "dbinc/db_page.h"
 #include "dbinc/btree.h"
 #include "dbinc/hash.h"
+#include "dbinc/heap.h"
 #include "dbinc/lock.h"
 #include "dbinc/mp.h"
 #include "dbinc/qam.h"
@@ -47,6 +48,8 @@ static int  __db_get_encrypt_flags __P((DB *, u_int32_t *));
 static int  __db_set_encrypt __P((DB *, const char *, u_int32_t));
 static int  __db_get_feedback __P((DB *, void (**)(DB *, int, int)));
 static int  __db_set_feedback __P((DB *, void (*)(DB *, int, int)));
+static int  __db_get_lk_exclusive __P((DB *, int *, int *));
+static int  __db_set_lk_exclusive __P((DB *, int));
 static void __db_map_flags __P((DB *, u_int32_t *, u_int32_t *));
 static int  __db_get_pagesize __P((DB *, u_int32_t *));
 static int  __db_set_paniccall __P((DB *, void (*)(DB_ENV *, int)));
@@ -88,13 +91,48 @@ db_create(dbpp, dbenv, flags)
 	env = dbenv == NULL ? NULL : dbenv->env;
 
 	/* Check for invalid function flags. */
-	if (flags != 0)
+	switch (flags) {
+	case 0:
+		break;
+	case DB_XA_CREATE:
+		if (dbenv != NULL) {
+			__db_errx(env, DB_STR("0504",
+	    "XA applications may not specify an environment to db_create"));
+			return (EINVAL);
+		}
+
+		/*
+		 * If it's an XA database, open it within the XA environment,
+		 * taken from the global list of environments.  (When the XA
+		 * transaction manager called our xa_start() routine the
+		 * "current" environment was moved to the start of the list.
+		 */
+		env = TAILQ_FIRST(&DB_GLOBAL(envq));
+		if (env == NULL) {
+			__db_errx(env, DB_STR("0505",
+			    "Cannot open XA database before XA is enabled"));
+			return (EINVAL);
+		}
+		break;
+	default:
 		return (__db_ferr(env, "db_create", 0));
+	}
 
 	if (env != NULL)
 		ENV_ENTER(env, ip);
+
+	/*
+	 * If we are opening an XA database, make sure we don't have a global XA
+	 * transaction running.
+	 */
+	if (LF_ISSET(DB_XA_CREATE)) {
+		XA_NO_TXN(ip, ret);
+		if (ret != 0)
+			goto err;
+	}
+
 	ret = __db_create_internal(dbpp, env, flags);
-	if (env != NULL)
+err:	if (env != NULL)
 		ENV_LEAVE(env, ip);
 
 	return (ret);
@@ -171,7 +209,7 @@ err:	if (dbp != NULL) {
 		__os_free(env, dbp);
 	}
 
-	if (F_ISSET(env, ENV_DBLOCAL))
+	if (dbp != NULL && F_ISSET(env, ENV_DBLOCAL))
 		(void)__env_close(dbp->dbenv, 0);
 
 	return (ret);
@@ -198,7 +236,7 @@ __db_init(dbp, flags)
 	LIST_INIT(&dbp->s_secondaries);
 
 	FLD_SET(dbp->am_ok,
-	    DB_OK_BTREE | DB_OK_HASH | DB_OK_QUEUE | DB_OK_RECNO);
+	    DB_OK_BTREE | DB_OK_HASH | DB_OK_HEAP | DB_OK_QUEUE | DB_OK_RECNO);
 
 	/* DB PUBLIC HANDLE LIST BEGIN */
 	dbp->associate = __db_associate_pp;
@@ -243,6 +281,8 @@ __db_init(dbp, flags)
 	dbp->get_type = __db_get_type;
 	dbp->join = __db_join_pp;
 	dbp->key_range = __db_key_range_pp;
+	dbp->get_lk_exclusive = __db_get_lk_exclusive;
+	dbp->set_lk_exclusive = __db_set_lk_exclusive;
 	dbp->open = __db_open_pp;
 	dbp->pget = __db_pget_pp;
 	dbp->put = __db_put_pp;
@@ -281,6 +321,8 @@ __db_init(dbp, flags)
 		return (ret);
 	if ((ret = __ham_db_create(dbp)) != 0)
 		return (ret);
+	if ((ret = __heap_db_create(dbp)) != 0)
+		return (ret);
 	if ((ret = __qam_db_create(dbp)) != 0)
 		return (ret);
 
@@ -307,14 +349,15 @@ __dbh_am_chk(dbp, flags)
 	 */
 	if ((LF_ISSET(DB_OK_BTREE) && FLD_ISSET(dbp->am_ok, DB_OK_BTREE)) ||
 	    (LF_ISSET(DB_OK_HASH) && FLD_ISSET(dbp->am_ok, DB_OK_HASH)) ||
+	    (LF_ISSET(DB_OK_HEAP) && FLD_ISSET(dbp->am_ok, DB_OK_HEAP)) ||
 	    (LF_ISSET(DB_OK_QUEUE) && FLD_ISSET(dbp->am_ok, DB_OK_QUEUE)) ||
 	    (LF_ISSET(DB_OK_RECNO) && FLD_ISSET(dbp->am_ok, DB_OK_RECNO))) {
 		FLD_CLR(dbp->am_ok, ~flags);
 		return (0);
 	}
 
-	__db_errx(dbp->env,
-    "call implies an access method which is inconsistent with previous calls");
+	__db_errx(dbp->env, DB_STR("0506",
+"call implies an access method which is inconsistent with previous calls"));
 	return (EINVAL);
 }
 
@@ -539,8 +582,8 @@ __db_set_create_dir(dbp, dir)
 			break;
 
 	if (i == dbenv->data_next) {
-		__db_errx(dbp->env,
-		     "Directory %s not in environment list.", dir);
+		__db_errx(dbp->env, DB_STR_A("0507",
+		    "Directory %s not in environment list.", "%s"), dir);
 		return (EINVAL);
 	}
 
@@ -721,6 +764,30 @@ __db_set_feedback(dbp, feedback)
 	return (0);
 }
 
+static int
+__db_get_lk_exclusive(dbp, onoff, nowait)
+	DB *dbp;
+	int *onoff;
+	int *nowait;
+{
+	*onoff = (F2_ISSET(dbp, DB2_AM_EXCL) ? 1 : 0);
+	*nowait = (F2_ISSET(dbp, DB2_AM_NOWAIT) ? 1 : 0);
+	return (0);
+}
+
+static int
+__db_set_lk_exclusive(dbp, nowait)
+	DB *dbp;
+	int nowait;
+{
+	DB_ILLEGAL_AFTER_OPEN(dbp, "DB->set_lk_exclusive");
+
+	F2_CLR(dbp, DB2_AM_NOWAIT);
+	F2_SET(dbp, (nowait ? DB2_AM_NOWAIT|DB2_AM_EXCL :
+	    DB2_AM_EXCL));
+	return (0);
+}
+
 /*
  * __db_map_flags --
  *	Maps between public and internal flag values.
@@ -825,8 +892,8 @@ __db_set_flags(dbp, flags)
 	env = dbp->env;
 
 	if (LF_ISSET(DB_ENCRYPT) && !CRYPTO_ON(env)) {
-		__db_errx(env,
-		    "Database environment not configured for encryption");
+		__db_errx(env, DB_STR("0508",
+		    "Database environment not configured for encryption"));
 		return (EINVAL);
 	}
 	if (LF_ISSET(DB_TXN_NOT_DURABLE))
@@ -987,12 +1054,14 @@ __db_set_pagesize(dbp, db_pagesize)
 	DB_ILLEGAL_AFTER_OPEN(dbp, "DB->set_pagesize");
 
 	if (db_pagesize < DB_MIN_PGSIZE) {
-		__db_errx(dbp->env, "page sizes may not be smaller than %lu",
+		__db_errx(dbp->env, DB_STR_A("0509",
+		    "page sizes may not be smaller than %lu", "%lu"),
 		    (u_long)DB_MIN_PGSIZE);
 		return (EINVAL);
 	}
 	if (db_pagesize > DB_MAX_PGSIZE) {
-		__db_errx(dbp->env, "page sizes may not be larger than %lu",
+		__db_errx(dbp->env, DB_STR_A("0510",
+		    "page sizes may not be larger than %lu", "%lu"),
 		    (u_long)DB_MAX_PGSIZE);
 		return (EINVAL);
 	}
@@ -1002,7 +1071,8 @@ __db_set_pagesize(dbp, db_pagesize)
 	 * for alignment of various types on the pages.
 	 */
 	if (!POWER_OF_TWO(db_pagesize)) {
-		__db_errx(dbp->env, "page sizes must be a power-of-2");
+		__db_errx(dbp->env, DB_STR("0511",
+		    "page sizes must be a power-of-2"));
 		return (EINVAL);
 	}
 

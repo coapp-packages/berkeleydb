@@ -12,7 +12,10 @@
     <link rel="next" href="txndiscard.html" title="DB_TXN-&gt;discard()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DB_TXN-&gt;commit()</th>
@@ -83,7 +86,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3712493"></a>DB_LOCK_DEADLOCK</h4>
+              <h4 class="title"><a id="idp62825784"></a>DB_LOCK_DEADLOCK</h4>
             </div>
           </div>
         </div>
@@ -96,7 +99,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3712568"></a>DB_LOCK_NOTGRANTED</h4>
+              <h4 class="title"><a id="idp62880848"></a>DB_LOCK_NOTGRANTED</h4>
             </div>
           </div>
         </div>
@@ -104,12 +107,31 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
             </p>
+        <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="DB-&gt;set_lk_exclusive()">DB-&gt;set_lk_exclusive()</a>
+                for more information.
+            </p>
       </div>
       <div class="sect3" lang="en" xml:lang="en">
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3712742"></a>EINVAL</h4>
+              <h4 class="title"><a id="idp62887632"></a>DB_REP_LEASE_EXPIRED</h4>
+            </div>
+          </div>
+        </div>
+        <p>
+                The operation failed because the site's replication master lease has expired.
+            </p>
+      </div>
+      <div class="sect3" lang="en" xml:lang="en">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h4 class="title"><a id="idp62862488"></a>EINVAL</h4>
             </div>
           </div>
         </div>
@@ -121,7 +143,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3712749"></a>Parameters</h3>
+              <h3 class="title"><a id="idp62904680"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -129,7 +151,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3712752"></a>flags</h4>
+                <h4 class="title"><a id="idp62904872"></a>flags</h4>
               </div>
             </div>
           </div>
@@ -217,7 +239,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3712818"></a>Class</h3>
+              <h3 class="title"><a id="idp62908824"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -229,7 +251,7 @@ DB_TXN-&gt;commit(DB_TXN *tid, u_int32_t flags);  </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3712554"></a>See Also</h3>
+              <h3 class="title"><a id="idp62888280"></a>See Also</h3>
             </div>
           </div>
         </div>

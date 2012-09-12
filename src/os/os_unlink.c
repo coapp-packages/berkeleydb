@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1997, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1997, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -29,7 +29,8 @@ __os_unlink(env, path, overwrite_test)
 
 	if (dbenv != NULL &&
 	    FLD_ISSET(dbenv->verbose, DB_VERB_FILEOPS | DB_VERB_FILEOPS_ALL))
-		__db_msg(env, "fileops: unlink %s", path);
+		__db_msg(env, DB_STR_A("0160", "fileops: unlink %s",
+		    "%s"), path);
 
 	/* Optionally overwrite the contents of the file to enhance security. */
 	if (dbenv != NULL && overwrite_test && F_ISSET(dbenv, DB_ENV_OVERWRITE))
@@ -70,7 +71,8 @@ __os_unlink(env, path, overwrite_test)
 	if (ret != 0) {
 		t_ret = __os_posix_err(ret);
 		if (t_ret != ENOENT)
-			__db_syserr(env, ret, "unlink: %s", path);
+			__db_syserr(env, ret, DB_STR_A("0161",
+			    "unlink: %s", "%s"), path);
 		ret = t_ret;
 	}
 

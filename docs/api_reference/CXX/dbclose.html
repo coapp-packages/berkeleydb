@@ -9,10 +9,13 @@
     <link rel="start" href="index.html" title="Berkeley DB C++ API Reference" />
     <link rel="up" href="db.html" title="Chapter 2.  The Db Handle" />
     <link rel="prev" href="dbassociate_foreign.html" title="Db::associate_foreign()" />
-    <link rel="next" href="dbcreate.html" title="Db" />
+    <link rel="next" href="dbcompact.html" title="Db::compact()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">Db::close()</th>
@@ -22,7 +25,7 @@
           <th width="60%" align="center">Chapter 2. 
                 The Db Handle
         </th>
-          <td width="20%" align="right"> <a accesskey="n" href="dbcreate.html">Next</a></td>
+          <td width="20%" align="right"> <a accesskey="n" href="dbcompact.html">Next</a></td>
         </tr>
       </table>
       <hr />
@@ -100,7 +103,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3461889"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
+              <h4 class="title"><a id="idm2187392"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
             </div>
           </div>
         </div>
@@ -118,13 +121,20 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3460818"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
+              <h4 class="title"><a id="idm763760"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
             </div>
           </div>
         </div>
         <p>
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
+            </p>
+        <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="Db::set_lk_exclusive()">Db::set_lk_exclusive()</a>
+                for more information.
             </p>
         <p>
                 <a class="xref" href="dblocknotgranted.html" title="DbLockNotGrantedException">DbLockNotGrantedException</a> is thrown if
@@ -136,7 +146,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h4 class="title"><a id="id3461950"></a>EINVAL</h4>
+              <h4 class="title"><a id="idm1109448"></a>EINVAL</h4>
             </div>
           </div>
         </div>
@@ -148,7 +158,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3461900"></a>Parameters</h3>
+              <h3 class="title"><a id="idm3753096"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -156,7 +166,7 @@ Db::close(u_int32_t flags);</pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3462319"></a>flags</h4>
+                <h4 class="title"><a id="idm3746688"></a>flags</h4>
               </div>
             </div>
           </div>
@@ -203,7 +213,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3462348"></a>Errors</h3>
+              <h3 class="title"><a id="idm3948648"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -221,7 +231,7 @@ Db::close(u_int32_t flags);</pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3462568"></a>EINVAL</h4>
+                <h4 class="title"><a id="idm4074912"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -236,7 +246,7 @@ Db::close(u_int32_t flags);</pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3462486"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
+                <h4 class="title"><a id="idm4405032"></a><span>DbDeadlockException or </span>DB_LOCK_DEADLOCK</h4>
               </div>
             </div>
           </div>
@@ -254,13 +264,20 @@ Db::close(u_int32_t flags);</pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3459902"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
+                <h4 class="title"><a id="idm5040696"></a><span>DbLockNotGrantedException or </span>DB_LOCK_NOTGRANTED</h4>
               </div>
             </div>
           </div>
           <p>
                 A Berkeley DB Concurrent Data Store database environment configured
                 for lock timeouts was unable to grant a lock in the allowed time.
+            </p>
+          <p>
+                You attempted to open a database handle that is configured
+                for no waiting exclusive locking, but the exclusive lock could not be
+                immediately obtained. See
+                <a class="xref" href="dbset_lk_exclusive.html" title="Db::set_lk_exclusive()">Db::set_lk_exclusive()</a>
+                for more information.
             </p>
           <p>
                 <a class="xref" href="dblocknotgranted.html" title="DbLockNotGrantedException">DbLockNotGrantedException</a> is thrown if
@@ -272,7 +289,7 @@ Db::close(u_int32_t flags);</pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3462473"></a>EINVAL</h4>
+                <h4 class="title"><a id="idm5332888"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -285,7 +302,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3462260"></a>Class</h3>
+              <h3 class="title"><a id="idm5921248"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -297,7 +314,7 @@ Db::close(u_int32_t flags);</pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3462247"></a>See Also</h3>
+              <h3 class="title"><a id="idm6591192"></a>See Also</h3>
             </div>
           </div>
         </div>
@@ -314,14 +331,14 @@ Db::close(u_int32_t flags);</pre>
           <td width="20%" align="center">
             <a accesskey="u" href="db.html">Up</a>
           </td>
-          <td width="40%" align="right"> <a accesskey="n" href="dbcreate.html">Next</a></td>
+          <td width="40%" align="right"> <a accesskey="n" href="dbcompact.html">Next</a></td>
         </tr>
         <tr>
           <td width="40%" align="left" valign="top">Db::associate_foreign() </td>
           <td width="20%" align="center">
             <a accesskey="h" href="index.html">Home</a>
           </td>
-          <td width="40%" align="right" valign="top"> Db</td>
+          <td width="40%" align="right" valign="top"> Db::compact()</td>
         </tr>
       </table>
     </div>

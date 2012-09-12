@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2004, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2004, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -21,6 +21,11 @@ proc test109 { method {tnum "109"} args } {
 		puts "Test109 skipping for partitioned $method"
 		return
 	}
+        if { [is_heap $method] } {
+	        puts "Test109 skipping for method $method."
+		return
+	}
+
 	if { $eindex == -1 } {
 		set env NULL
 	} else {

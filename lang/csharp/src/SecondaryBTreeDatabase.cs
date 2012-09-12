@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -274,7 +274,7 @@ namespace BerkeleyDB {
                 else if (compareHandler == null) {
                     if (doCompareRef == null)
                         doCompareRef = new BDB_CompareDelegate(doCompare);
-                    db.set_bt_compare(doCompare);
+                    db.set_bt_compare(doCompareRef);
                 }
                 compareHandler = value;
             }

@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 1997, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 1997, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 
@@ -16,7 +16,7 @@
  * Example 5: Phrase query.  
  * Example 6: Using operator. 
  * Example 7: NEAR query. 
- * Example 8: Using auxillary functions. 
+ * Example 8: Using auxiliary functions. 
  */
 
 const sample_data sms_sample_data = {
@@ -87,9 +87,9 @@ ex_sql_fts3(db)
 	exec_sql(db, sql);
 
 	/*
-	 * Example 8: Using auxillary functions.
+	 * Example 8: Using auxiliary functions.
 	 */
-	echo_info("Example 8: Using auxillary functions.");
+	echo_info("Example 8: Using auxiliary functions.");
 	sql = "SELECT snippet(sms) FROM sms WHERE sms MATCH 'Elymas';";
 	exec_sql(db, sql);
 

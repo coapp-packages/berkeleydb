@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -18,7 +18,7 @@ proc sdb015 { method {nentries 1000} args } {
 	global passwd
 	global has_crypto
 
-	if { [is_queueext $method] == 1 } {
+       if { [is_queueext $method] == 1 || [is_heap $method] == 1 } {
 		puts "Subdb015: skipping for method $method"
 		return
 	}

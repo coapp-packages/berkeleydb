@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -17,7 +17,7 @@ proc sdb019 { method { nentries 100 } args } {
 	set args [convert_args $method $args]
 	set omethod [convert_method $method]
 
-	if { [is_queueext $method] == 1 } {
+       if { [is_queueext $method] == 1 || [is_heap $method] == 1 } {
 		puts "Subdb$tnum: skipping for method $method"
 		return
 	}

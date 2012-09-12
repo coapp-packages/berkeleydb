@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2002, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2002, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -291,7 +291,7 @@ proc rep002_sub { method niter nclients tnum logset recargs largs } {
 		set elector 0
 		set win 1
 		set altwin 0
-		if {[catch {eval run_election \
+		if {[catch {run_election \
 		    envlist err_cmd pri crash $qdir $m $elector $nsites \
 		    $nvotes $nclients $win 1 "test$tnum.db"} res]} {
 			#

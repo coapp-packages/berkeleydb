@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 1999, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 1999, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -17,7 +17,7 @@ proc sdb013 { method { nentries 10 } args } {
 	set args [convert_args $method $args]
 	set omethod [convert_method $method]
 
-	if { [is_queueext $method] == 1 } {
+       if { [is_queueext $method] == 1 || [is_heap $method] == 1 } {
 		puts "Subdb$tnum: skipping for method $method"
 		return
 	}
@@ -46,12 +46,20 @@ proc sdb013 { method { nentries 10 } args } {
 	# the cache a little larger, but still on the small side.
 	env_cleanup $testdir
 	set csize {0 65536 1}
+
+	# First check the native on-disk page size.
+	set native_pagesize [get_native_pagesize]
+	if { $native_pagesize > 8192 } {
+		set cache [expr 8 * $native_pagesize]
+		set csize "0 $cache 1"
+	}
+	# If we passed in a large pagesize in the args, adjust again.
 	set pgindex [lsearch -exact $args "-pagesize"]
 	if { $pgindex != -1 } {
 		incr pgindex
 		set pagesize [lindex $args $pgindex]
-		if { $pagesize > 8192 } {
-			set cache [expr 4 * $pagesize]
+		if { $pagesize > $native_pagesize && $pagesize > 8192 } {
+			set cache [expr 8 * $pagesize]
 			set csize "0 $cache 1"
 		}
 	}

@@ -13,7 +13,10 @@ JAVA_TYPEMAP(u_int32_t, int, jint)
 JAVA_TYPEMAP(u_int32_t pagesize, long, jlong)
 JAVA_TYPEMAP(long, long, jlong)
 JAVA_TYPEMAP(db_seq_t, long, jlong)
+JAVA_TYPEMAP(db_size_t, long, jlong)
+JAVA_TYPEMAP(db_ssize_t, long, jlong)
 JAVA_TYPEMAP(pid_t, long, jlong)
+JAVA_TYPEMAP(roff_t, long, jlong)
 #ifndef SWIGJAVA
 JAVA_TYPEMAP(db_threadid_t, long, jlong)
 #endif
@@ -45,7 +48,7 @@ struct __db_out_stream {
        int (*callback) __P((void *, const void *));
 };
 
-struct __db_repmgr_localsite {
+struct __db_repmgr_site_address {
 	const char *host;
 	u_int port;
 };
@@ -58,12 +61,14 @@ struct __db_repmgr_sites {
 #define        Db __db
 #define        Dbc __dbc
 #define        Dbt __db_dbt
+#define        DbChannel __db_channel
 #define        DbEnv __db_env
 #define        DbLock __db_lock_u
 #define        DbLogc __db_log_cursor
 #define        DbLsn __db_lsn
 #define        DbMpoolFile __db_mpoolfile
 #define        DbSequence __db_sequence
+#define        DbSite __db_site
 #define        DbTxn __db_txn
 
 /* Suppress a compilation warning for an unused symbol */
@@ -379,6 +384,16 @@ JAVA_TYPEMAP(time_t *, long, jlong)
         $1 = $input;
 %}
 
+JAVA_TYPEMAP(u_int, long, jlong)
+JAVA_TYPEMAP(u_int *, long, jlong)
+%typemap(in) u_int * (u_int value) %{
+        value = (u_int)$input;
+        $1 = &value;
+%}
+
+%typemap(in) u_int %{
+        $1 = $input;
+%}
 
 JAVA_TYPEMAP(DB_KEY_RANGE *, com.sleepycat.db.KeyRange, jobject)
 %typemap(in) DB_KEY_RANGE * (DB_KEY_RANGE range) {
@@ -465,6 +480,8 @@ JAVA_TYPEMAP(char **, String[], jobjectArray)
 		__os_ufree(NULL, $1);
 	}
 }
+
+JAVA_TYPEMAP(char **hostp, String, jobjectArray)
 
 JAVA_TYPEMAP(struct __db_lk_conflicts, byte[][], jobjectArray)
 %typemap(in) struct __db_lk_conflicts {
@@ -565,29 +582,33 @@ JAVA_TYPEMAP(DB_PREPLIST *, com.sleepycat.db.PreparedTransaction[],
 %typemap(out) DB_PREPLIST * {
 	int i, len;
 
-	len = 0;
-	while ($1[len].txn != NULL)
-		len++;
-	$result = (*jenv)->NewObjectArray(jenv, (jsize)len, dbpreplist_class,
-	    NULL);
-	if ($result == NULL)
-		return $null; /* an exception is pending */
-	for (i = 0; i < len; i++) {
-		jobject jtxn = (*jenv)->NewObject(jenv, dbtxn_class,
-		    dbtxn_construct, $1[i].txn, JNI_FALSE);
-		jobject bytearr = (*jenv)->NewByteArray(jenv,
-		    (jsize)sizeof($1[i].gid));
-		jobject obj = (*jenv)->NewObject(jenv, dbpreplist_class,
-		    dbpreplist_construct, jtxn, bytearr);
+	if ($1 == NULL)
+		$result = NULL;
+	else {
+		len = 0;
+		while ($1[len].txn != NULL)
+			len++;
+		$result = (*jenv)->NewObjectArray(jenv, (jsize)len, dbpreplist_class,
+		    NULL);
+		if ($result == NULL)
+			return $null; /* an exception is pending */
+		for (i = 0; i < len; i++) {
+			jobject jtxn = (*jenv)->NewObject(jenv, dbtxn_class,
+			    dbtxn_construct, $1[i].txn, JNI_FALSE);
+			jobject bytearr = (*jenv)->NewByteArray(jenv,
+			    (jsize)sizeof($1[i].gid));
+			jobject obj = (*jenv)->NewObject(jenv, dbpreplist_class,
+			    dbpreplist_construct, jtxn, bytearr);
+	
+			if (jtxn == NULL || bytearr == NULL || obj == NULL)
+				return $null; /* An exception is pending */
 
-		if (jtxn == NULL || bytearr == NULL || obj == NULL)
-			return $null; /* An exception is pending */
-
-		(*jenv)->SetByteArrayRegion(jenv, bytearr, 0,
-		    (jsize)sizeof($1[i].gid), (jbyte *)$1[i].gid);
-		(*jenv)->SetObjectArrayElement(jenv, $result, i, obj);
+			(*jenv)->SetByteArrayRegion(jenv, bytearr, 0,
+			    (jsize)sizeof($1[i].gid), (jbyte *)$1[i].gid);
+			(*jenv)->SetObjectArrayElement(jenv, $result, i, obj);
+		}
+		__os_ufree(NULL, $1);
 	}
-	__os_ufree(NULL, $1);
 }
 
 JAVA_TYPEMAP(DB_LOCKREQ *, com.sleepycat.db.LockRequest[], jobjectArray)
@@ -871,13 +892,13 @@ Java_com_sleepycat_db_internal_db_1javaJNI_DbTxn_1commit(JNIEnv *jenv,
 }
 %}
 
-JAVA_TYPEMAP(struct __db_repmgr_localsite,
+JAVA_TYPEMAP(struct __db_repmgr_site_address,
     com.sleepycat.db.ReplicationHostAddress, jobject)
-%typemap(out) struct __db_repmgr_localsite
+%typemap(out) struct __db_repmgr_site_address
 {
 	jstring addr_host;
 	if ($1.host == NULL)
-		return $null; /* Local site was not set. */
+		return $null;
 	addr_host = (*jenv)->NewStringUTF(jenv, $1.host);
 	if (addr_host == NULL)
 		return $null; /* An exception is pending. */
@@ -923,3 +944,54 @@ JAVA_TYPEMAP(struct __db_repmgr_sites,
 }
 
 JAVA_TYPEMAP(void *, Object, jobject)
+
+JAVA_TYPEMAP(DBT *chan_msgs, com.sleepycat.db.DatabaseEntry[], jobjectArray)
+%typemap(in) DBT *chan_msgs {
+	DBT_LOCKED lresult;
+	int count, i, ret;
+
+	count = (*jenv)->GetArrayLength(jenv, $input);
+	if ((ret = __os_malloc(NULL, count * sizeof(DBT), &$1)) != 0) {
+		__dbj_throw(jenv, ret, NULL, NULL, NULL);
+		return $null;
+	}
+	memset($1, 0, count * sizeof(DBT));
+	for (i = 0; i < count; i++) {
+		jobject jresult = (*jenv)->GetObjectArrayElement(jenv, $input, i);
+		if ((ret =
+		    __dbj_dbt_copyin(jenv, &lresult, NULL, jresult, 0)) != 0) {
+			return $null; /* An exception will be pending. */
+		}
+		if (lresult.dbt.size != 0) {
+			/* If there's data, we need to take a copy of it.  */
+			$1[i].size = lresult.dbt.size;
+			if ((ret = __os_malloc(
+			    NULL, $1[i].size, $1[i].data)) != 0) {
+				__dbj_throw(jenv, ret, NULL, NULL, NULL);	
+				return $null;
+			}
+
+			if ((ret = __dbj_dbt_memcopy(&lresult.dbt, 0,
+			    $1[i].data, $1[i].size, DB_USERCOPY_GETDATA)) != 0) {
+				__dbj_throw(jenv, ret, NULL, NULL, NULL);
+				return $null;
+			}
+
+			__dbj_dbt_release(jenv, jresult, &lresult.dbt, &lresult);
+			(*jenv)->DeleteLocalRef(jenv, lresult.jarr);
+		}
+		(*jenv)->DeleteLocalRef(jenv, jresult);
+	}
+}
+
+%typemap(freearg) DBT *chan_msgs %{
+{
+	int count, i;
+
+	count = (*jenv)->GetArrayLength(jenv, $input);
+	for (i = 0; i < count; i++)
+		__os_free(NULL, $1[i].data);
+	__os_free(NULL, $1);
+}
+%}
+

@@ -1,6 +1,6 @@
 # See the file LICENSE for redistribution information.
 #
-# Copyright (c) 2007, 2011 Oracle and/or its affiliates.  All rights reserved.
+# Copyright (c) 2007, 2012 Oracle and/or its affiliates.  All rights reserved.
 #
 # $Id$
 #
@@ -50,18 +50,13 @@ proc repmgr012_sub { method niter tnum largs } {
 	file mkdir $masterdir
 	file mkdir $clientdir
 
-	# Use different connection retry timeout values to handle any
-	# collisions from starting sites at the same time by retrying
-	# at different times.
-
 	# Open a master.
 	puts "\tRepmgr$tnum.a: Start a master."
 	set ma_envcmd "berkdb_env_noerr -create $verbargs \
 	    -errpfx MASTER -home $masterdir -txn -rep -thread"
 	set masterenv [eval $ma_envcmd]
-	$masterenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 20000000} \
-	    -local [list localhost [lindex $ports 0]] \
+	$masterenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 0]] \
 	    -start master
 
 	# Open a client.
@@ -69,10 +64,9 @@ proc repmgr012_sub { method niter tnum largs } {
 	set cl_envcmd "berkdb_env_noerr -create $verbargs \
 	    -errpfx CLIENT -home $clientdir -txn -rep -thread"
 	set clientenv [eval $cl_envcmd]
-	$clientenv repmgr -ack all -nsites $nsites \
-	    -timeout {connection_retry 10000000} \
-	    -local [list localhost [lindex $ports 1]] \
-	    -remote [list localhost [lindex $ports 0]] \
+	$clientenv repmgr -ack all \
+	    -local [list 127.0.0.1 [lindex $ports 1]] \
+	    -remote [list 127.0.0.1 [lindex $ports 0]] \
 	    -start client
 	await_startup_done $clientenv
 
@@ -89,8 +83,8 @@ proc repmgr012_sub { method niter tnum largs } {
 	# Timeouts are in microseconds, heartbeat monitor should be
 	# longer than heartbeat_send.
 	puts "\tRepmgr$tnum.e: Set heartbeat timeouts."
-	$masterenv repmgr -timeout {heartbeat_send 5000000}
-	$clientenv repmgr -timeout {heartbeat_monitor 10000000}
+	$masterenv repmgr -timeout {heartbeat_send 100000}
+	$clientenv repmgr -timeout {heartbeat_monitor 180000}
 
 	puts "\tRepmgr$tnum.f: Run second set of transactions at master."
 	eval rep_test $method $masterenv NULL $niter $niter 0 0 $largs
@@ -106,12 +100,12 @@ proc repmgr012_sub { method niter tnum largs } {
 	set init_cd [stat_field $clientenv repmgr_stat "Connections dropped"]
 
 	# Make sure client notices the lack of heartbeat.  Since the client's
-	# heartbeat monitoring granularity is 10 seconds, if we wait up to 15
+	# heartbeat monitoring granularity is < 1 second, if we wait up to 5
 	# seconds that ought to give it plenty of time to notice and react.
 	# 
 	puts "\tRepmgr$tnum.h: Remove master heartbeat and wait."
 	$masterenv repmgr -timeout {heartbeat_send 0}
-	set max_wait 15
+	set max_wait 5
 	await_condition {[stat_field $clientenv rep_stat \
 	    "Elections held"] > $init_eh} $max_wait
 	error_check_good conndrop [expr \

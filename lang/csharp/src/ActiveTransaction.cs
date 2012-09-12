@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2009, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2009, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 using System;
@@ -26,28 +26,6 @@ namespace BerkeleyDB {
             _read_lsn = new LSN(txn.read_lsn.file, txn.read_lsn.offset);
             gid = GlobalID;
             txnname = Name;
-        }
-
-        /// <summary>
-        /// The status of an active transaction.
-        /// </summary>
-        public enum TransactionStatus {
-            /// <summary>
-            /// The transaction has been aborted
-            /// </summary>
-            ABORTED = DB_TXN_ACTIVE_STATUS.TXN_ABORTED,
-            /// <summary>
-            /// The transaction has been committed
-            /// </summary>
-            COMMITTED = DB_TXN_ACTIVE_STATUS.TXN_COMMITTED,
-            /// <summary>
-            /// The transaction has been prepared
-            /// </summary>
-            PREPARED = DB_TXN_ACTIVE_STATUS.TXN_PREPARED,
-            /// <summary>
-            /// The transaction is running
-            /// </summary>
-            RUNNING = DB_TXN_ACTIVE_STATUS.TXN_RUNNING
         }
 
         /// <summary>
@@ -79,12 +57,6 @@ namespace BerkeleyDB {
         /// remain in cache.
         /// </summary>
         public uint BufferCopiesInCache { get { return txn.mvcc_ref; } }
-        /// <summary>
-        /// Status of the transaction.
-        /// </summary>
-        public TransactionStatus Status { 
-            get { return (TransactionStatus)txn.status; } 
-        }
         /// <summary>
         /// If the transaction is a prepare transaction, the transaction's
         /// Global ID. Otherwise, the GlobalID contents are undefined. 

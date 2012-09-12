@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  * 
- * Copyright (c) 2010, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2010, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  */
 
@@ -21,8 +21,8 @@ import com.sleepycat.db.DatabaseEntry;
 import com.sleepycat.db.DatabaseType;
 import com.sleepycat.db.Environment;
 import com.sleepycat.db.EnvironmentConfig;
-import com.sleepycat.db.EventHandlerAdapter;
-import com.sleepycat.db.ReplicationHostAddress;
+import com.sleepycat.db.ReplicationConfig;
+import com.sleepycat.db.ReplicationManagerSiteConfig;
 import com.sleepycat.db.ReplicationManagerStartPolicy;
 import com.sleepycat.db.ReplicationTimeoutType;
 import com.sleepycat.db.VerboseConfig;
@@ -35,15 +35,6 @@ import com.sleepycat.db.VerboseConfig;
 public class TestNoClient {
     private static final String TEST_DIR_NAME = "TESTDIR";
     private File testdir;
-    class MyEventHandler extends EventHandlerAdapter {
-        private int permFailures;
-        
-        @Override synchronized public void handleRepPermFailedEvent() {
-            permFailures++;
-        }
-
-        synchronized int getPermFailureCount() { return permFailures; }
-    }
     
     @Before public void setUp() throws Exception {
         testdir = new File(TEST_DIR_NAME);
@@ -65,11 +56,18 @@ public class TestNoClient {
         int clientPort = testPorts[1];
         
         EnvironmentConfig ec = makeBasicConfig();
-        MyEventHandler mon = new MyEventHandler();
+        EventHandler mon = new EventHandler();
         ec.setEventHandler(mon);
-        ec.setReplicationManagerLocalSite(new ReplicationHostAddress("localhost", masterPort));
-        ec.replicationManagerAddRemoteSite(new ReplicationHostAddress("localhost", clientPort), peer);
+        ReplicationManagerSiteConfig local = new ReplicationManagerSiteConfig("localhost", masterPort);
+        local.setLocalSite(true);
+        local.setLegacy(true);
+        ec.addReplicationManagerSite(local);
+        ReplicationManagerSiteConfig clientConfig = new ReplicationManagerSiteConfig("localhost", clientPort);
+        clientConfig.setPeer(peer);
+        clientConfig.setLegacy(true);
+        ec.addReplicationManagerSite(clientConfig);
         Environment master = new Environment(mkdir("master"), ec);
+        master.setReplicationConfig(ReplicationConfig.STRICT_2SITE, false);
         master.replicationManagerStart(1, ReplicationManagerStartPolicy.REP_MASTER);
         
         DatabaseConfig dc = new DatabaseConfig();
@@ -83,7 +81,7 @@ public class TestNoClient {
         // 
         master.setReplicationTimeout(ReplicationTimeoutType.ACK_TIMEOUT,
                                      10000000);
-        int initialFailureCount = mon.getPermFailureCount();
+        int initialFailureCount = mon.getPermFailCount();
         long startTime = System.currentTimeMillis();
         DatabaseEntry key = new DatabaseEntry();
         DatabaseEntry value = new DatabaseEntry();
@@ -91,7 +89,7 @@ public class TestNoClient {
         value.setData("hello, world!".getBytes());
         db.put(null, key, value);
 
-        assertEquals(initialFailureCount + 1, mon.getPermFailureCount());
+        assertEquals(initialFailureCount + 1, mon.getPermFailCount());
 
         // Note that Java measures time in milliseconds, although DB
         // required us to specify microseconds (above).
@@ -112,7 +110,6 @@ public class TestNoClient {
         ec.setInitializeReplication(true);
         ec.setTransactional(true);
         ec.setThreaded(true);
-        ec.setReplicationNumSites(2);
         if (Boolean.getBoolean("VERB_REPLICATION"))
             ec.setVerbose(VerboseConfig.REPLICATION, true);
         return (ec);

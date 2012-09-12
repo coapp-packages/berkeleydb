@@ -12,7 +12,10 @@
     <link rel="next" href="envstat.html" title="DbEnv::stat_print()" />
   </head>
   <body>
-    <div class="navheader">
+    <div xmlns="" class="navheader">
+      <div class="libver">
+        <p>Library Version 11.2.5.3</p>
+      </div>
       <table width="100%" summary="Navigation header">
         <tr>
           <th colspan="3" align="center">DbEnv::set_verbose()</th>
@@ -48,18 +51,17 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
          method.
     </p>
       <p>
-         The database environment's messages may also be configured using the
-         environment's <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file.  The
-         syntax of the entry in that file is a single line with the string
-         "set_verbose", one or more whitespace characters, and the method
-         <span class="bold"><strong>which</strong></span> parameter as a string
-	  and optionally one or more whitespace characters, and the
-	  string "on" or "off".  If the optional string is omitted,
-	  the default is "on"; for
-         example, "set_verbose DB_VERB_RECOVERY" or "set_verbose
-	 DB_VERB_RECOVERY on". Because the <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file is
-         read when the database environment is opened, it will silently
-         overrule configuration done before that time.
+         The database environment's messages may also be configured using
+         the environment's <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file.  The syntax of the entry in
+         that file is a single line with the string "set_verbose", one or
+         more whitespace characters, and the method 
+         <span class="bold"><strong>which</strong></span> parameter as a string and
+         optionally one or more whitespace characters, and the string "on"
+         or "off".  If the optional string is omitted, the default is "on";
+         for example, "set_verbose DB_VERB_RECOVERY" or "set_verbose
+         DB_VERB_RECOVERY on". Because the <a href="../../programmer_reference/env_db_config.html#env_db_config.DB_CONFIG" class="olink">DB_CONFIG</a> file is read when
+         the database environment is opened, it will silently overrule
+         configuration done before that time.
     </p>
       <p>
          The <code class="methodname">DbEnv::set_verbose()</code> method configures operations performed
@@ -84,7 +86,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3509088"></a>Parameters</h3>
+              <h3 class="title"><a id="idp2353648"></a>Parameters</h3>
             </div>
           </div>
         </div>
@@ -92,7 +94,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3509090"></a>which</h4>
+                <h4 class="title"><a id="idp2353496"></a>which</h4>
               </div>
             </div>
           </div>
@@ -240,7 +242,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3509258"></a>onoff</h4>
+                <h4 class="title"><a id="idp2363424"></a>onoff</h4>
               </div>
             </div>
           </div>
@@ -254,7 +256,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3509010"></a>Errors</h3>
+              <h3 class="title"><a id="idp2336928"></a>Errors</h3>
             </div>
           </div>
         </div>
@@ -272,7 +274,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
           <div class="titlepage">
             <div>
               <div>
-                <h4 class="title"><a id="id3509421"></a>EINVAL</h4>
+                <h4 class="title"><a id="idp2376160"></a>EINVAL</h4>
               </div>
             </div>
           </div>
@@ -285,7 +287,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3509440"></a>Class</h3>
+              <h3 class="title"><a id="idp2369224"></a>Class</h3>
             </div>
           </div>
         </div>
@@ -297,7 +299,7 @@ DbEnv::set_verbose(u_int32_t which, int onoff); </pre>
         <div class="titlepage">
           <div>
             <div>
-              <h3 class="title"><a id="id3509229"></a>See Also</h3>
+              <h3 class="title"><a id="idp2356880"></a>See Also</h3>
             </div>
           </div>
         </div>

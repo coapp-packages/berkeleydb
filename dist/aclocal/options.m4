@@ -52,6 +52,16 @@ case "$enableval" in
 yes) AC_MSG_RESULT(no);;
 esac
 
+AC_MSG_CHECKING(if --disable-heap option specified)
+AC_ARG_ENABLE(heap,
+	[AC_HELP_STRING([--disable-heap],
+	    [Do not build Heap access method.])],, enableval=$db_cv_build_full)
+db_cv_build_heap="$enableval"
+case "$enableval" in
+ no) AC_MSG_RESULT(yes);;
+yes) AC_MSG_RESULT(no);;
+esac
+
 AC_MSG_CHECKING(if --disable-mutexsupport option specified)
 AC_ARG_ENABLE(mutexsupport,
 	AC_HELP_STRING([--disable-mutexsupport],
@@ -61,6 +71,21 @@ case "$enableval" in
  no) AC_MSG_RESULT(yes);;
 yes) AC_MSG_RESULT(no);;
 esac
+
+AC_MSG_CHECKING(if --disable-log_checksum option specified)
+AC_ARG_ENABLE(log_checksum,
+	AC_HELP_STRING([--disable-log_checksum],
+	    [Disable log checksums.]),
+	[case "$enableval" in
+	 no | yes) db_cv_log_checksum="$enableval" ;;
+	  *) db_cv_log_checksum="yes" ;;
+ 	 esac], 
+	db_cv_log_checksum="yes")
+case "$db_cv_log_checksum" in
+ no) AC_MSG_RESULT(yes);;
+yes) AC_MSG_RESULT(no);;
+esac
+
 
 AC_MSG_CHECKING(if --disable-partition option specified)
 AC_ARG_ENABLE(partition,
@@ -287,6 +312,20 @@ AC_ARG_ENABLE(test,
 	[db_cv_test="$enable_test"], [db_cv_test="no"])
 AC_MSG_RESULT($db_cv_test)
 
+AC_MSG_CHECKING(if --enable-localization option specified)
+AC_ARG_ENABLE(localization,
+	[AC_HELP_STRING([--enable-localization],
+			[Configure to enable localization.])],
+	[db_cv_localization="$enable_localization"], [db_cv_localization="no"])
+AC_MSG_RESULT($db_cv_localization)
+
+AC_MSG_CHECKING(if --enable-stripped_messages option specified)
+AC_ARG_ENABLE(stripped_messages,
+	[AC_HELP_STRING([--enable-stripped_messages],
+			[Configure to enable stripped messages.])],
+	[db_cv_stripped_messages="$enable_stripped_messages"], [db_cv_stripped_messages="no"])
+AC_MSG_RESULT($db_cv_stripped_messages)
+
 AC_MSG_CHECKING(if --enable-dbm option specified)
 AC_ARG_ENABLE(dbm,
 	[AC_HELP_STRING([--enable-dbm],
@@ -328,6 +367,26 @@ AC_ARG_ENABLE(umrw,
 			[Mask harmless uninitialized memory read/writes.])],
 	[db_cv_umrw="$enable_umrw"], [db_cv_umrw="no"])
 AC_MSG_RESULT($db_cv_umrw)
+
+# Solaris, AI/X, OS/X and other BSD-derived systems default to POSIX-conforming
+# disk i/o: A single read or write call is atomic. Other systems do not
+# guarantee atomicity; in particular Linux and Microsoft Windows.
+atomicfileread="no"
+case "$host_os" in
+solaris* | aix* | bsdi3* | freebsd* | darwin*)
+	atomicfileread="yes";;
+esac
+AC_MSG_CHECKING(if --enable-atomicfileread option specified)
+AC_ARG_ENABLE(atomicfileread,
+	[AC_HELP_STRING([--enable-atomicfileread],
+			[Indicate that the platform reads and writes files atomically.])],
+	[db_cv_atomicfileread="$enable_atomicfileread"], [db_cv_atomicfileread=$atomicfileread])
+AC_MSG_RESULT($db_cv_atomicfileread)
+if test "$db_cv_atomicfileread" = "yes"; then
+	AC_DEFINE(HAVE_ATOMICFILEREAD)
+	AH_TEMPLATE(HAVE_ATOMICFILEREAD,
+    [Define to 1 if platform reads and writes files atomically.])
+fi
 
 # Cryptography support.
 # Until Berkeley DB 5.0, this was a simple yes/no decision.

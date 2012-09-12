@@ -1,7 +1,7 @@
 /*-
  * See the file LICENSE for redistribution information.
  *
- * Copyright (c) 2001, 2011 Oracle and/or its affiliates.  All rights reserved.
+ * Copyright (c) 2001, 2012 Oracle and/or its affiliates.  All rights reserved.
  *
  * $Id$
  */
@@ -152,8 +152,9 @@ __rep_open(env)
 		    F_ISSET(rep, REP_F_APP_BASEAPI)) ||
 		    (F_ISSET(db_rep, DBREP_APP_BASEAPI) &&
 		    F_ISSET(rep, REP_F_APP_REPMGR))) {
-			__db_errx(env,
-"Application type mismatch for a replication process joining the environment");
+			__db_errx(env, DB_STR("3535",
+			    "Application type mismatch for a replication "
+			    "process joining the environment"));
 			return (EINVAL);
 		}
 #ifdef HAVE_REPLICATION_THREADS
@@ -260,7 +261,9 @@ __rep_env_refresh(env)
 	 */
 	if (F_ISSET(env, ENV_PRIVATE)) {
 		if (rep != NULL) {
-			ret = __mutex_free(env, &rep->mtx_region);
+			if ((t_ret = __mutex_free(env,
+			    &rep->mtx_region)) != 0 && ret == 0)
+				ret = t_ret;
 			if ((t_ret = __mutex_free(env,
 			    &rep->mtx_clientdb)) != 0 && ret == 0)
 				ret = t_ret;
@@ -453,7 +456,7 @@ __rep_egen_init(env, rep)
 	char *p;
 
 	if ((ret = __db_appname(env,
-	    DB_APP_NONE, REP_EGENNAME, NULL, &p)) != 0)
+	    DB_APP_META, REP_EGENNAME, NULL, &p)) != 0)
 		return (ret);
 	/*
 	 * If the file doesn't exist, create it now and initialize with 1.
@@ -508,7 +511,7 @@ __rep_write_egen(env, rep, egen)
 	}
 
 	if ((ret = __db_appname(env,
-	    DB_APP_NONE, REP_EGENNAME, NULL, &p)) != 0)
+	    DB_APP_META, REP_EGENNAME, NULL, &p)) != 0)
 		return (ret);
 	if ((ret = __os_open(
 	    env, p, 0, DB_OSO_CREATE | DB_OSO_TRUNC, DB_MODE_600, &fhp)) == 0) {
@@ -539,7 +542,7 @@ __rep_gen_init(env, rep)
 	char *p;
 
 	if ((ret = __db_appname(env,
-	    DB_APP_NONE, REP_GENNAME, NULL, &p)) != 0)
+	    DB_APP_META, REP_GENNAME, NULL, &p)) != 0)
 		return (ret);
 
 	if (__os_exists(env, p, NULL) != 0) {
@@ -593,7 +596,7 @@ __rep_write_gen(env, rep, gen)
 	}
 
 	if ((ret = __db_appname(env,
-	    DB_APP_NONE, REP_GENNAME, NULL, &p)) != 0)
+	    DB_APP_META, REP_GENNAME, NULL, &p)) != 0)
 		return (ret);
 	if ((ret = __os_open(
 	    env, p, 0, DB_OSO_CREATE | DB_OSO_TRUNC, DB_MODE_600, &fhp)) == 0) {
