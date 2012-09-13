@@ -19,7 +19,7 @@ metadata {
     description: @"The Berkeley DB library provides key-value storage in a specific file format.
 This package contains the developer libraries for the ${arch} archetecture, as built by the ${flavor} compiler.";
     
-    author-version : "5.1.25";
+    author-version : "5.3.21";
     bug-tracker: "https://github.com/coapp-packages/berkeleydb/issues";
     stability : "0";
     licenses : {
@@ -28,9 +28,8 @@ This package contains the developer libraries for the ${arch} archetecture, as b
 }
 
 compatability-policy {
-    minimum: "5.1.0.0";
+    minimum: "5.3.0.0";
     maximum: "${OneLessThanCurrent}"; // this is the default
-    versions : { };
 }
 
 license[sleepycat] {

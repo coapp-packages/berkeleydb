@@ -22,9 +22,9 @@ files[dlls] {
     root: @"..\output\${flavor}\${arch}\Release";
   
     include: {
-        "libdb51.dll",
-        "libdb_sql51.dll",
-        "libdb_stl51.dll"
+        "libdb53.dll",
+        "libdb_sql53.dll",
+        "libdb_stl53.dll"
     };
     
     trim-path: all;
@@ -43,14 +43,14 @@ files[files-to-sign] {
 }
 
 provides {
-    feature: "database.berkeley" = "5.1";
+    feature: "database.berkeley" = "5.3";
 }
 
 metadata {
     summary: "Berkeley Database library";
     description: @"The Berkeley DB library provides key-value storage in a specific file format.";
     
-    author-version : "5.1.25";
+    author-version : "5.3.21";
     bug-tracker: "https://github.com/coapp-packages/berkeleydb/issues";
     stability : "0";
     licenses : {
@@ -59,11 +59,8 @@ metadata {
 }
 
 compatability-policy {
-    minimum: "5.1.0.0";
+    minimum: "5.3.0.0";
     maximum: "${OneLessThanCurrent}"; // this is the default
-    versions : { 
-        "5.1"
-    };
 }
 
 assembly[berkeleydb[${flavor}]] {

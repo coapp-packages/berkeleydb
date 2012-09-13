@@ -20,19 +20,19 @@ x86 {
 		CONFIG="${CONFIG??Debug}";
 	};
 
-    compiler: "${COMP}";
+    compiler: vc10;
     platform: "${PLAT}";
       
     targets: {
-		"output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll",
+		"output\${COMP}\${PLAT}\${CONFIG}\libdb53.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb53.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb53.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.dll",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.lib",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.exp",
+        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.dll",
         "output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe",
@@ -49,52 +49,27 @@ x86 {
         "output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe",
         "output\${COMP}\${PLAT}\${CONFIG}\ex_access.exe",
-        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib"
-		/*
-        "build_windows\Win32\Release\libdb51.lib",
-        "build_windows\Win32\Release\libdb51.exp",
-        "build_windows\Win32\Release\libdb51.dll",
-        "build_windows\Win32\Release\libdb_sql51.lib",
-        "build_windows\Win32\Release\libdb_sql51.exp",
-        "build_windows\Win32\Release\libdb_sql51.dll",
-        "build_windows\Win32\Release\libdb_stl51.lib",
-        "build_windows\Win32\Release\libdb_stl51.exp",
-        "build_windows\Win32\Release\libdb_stl51.dll",
-        "build_windows\Win32\Release\dbsql.exe",
-        "build_windows\Win32\Release\db_archive.exe",
-        "build_windows\Win32\Release\db_checkpoint.exe",
-        "build_windows\Win32\Release\db_deadlock.exe",
-        "build_windows\Win32\Release\db_dump.exe",
-        "build_windows\Win32\Release\db_hotbackup.exe",
-        "build_windows\Win32\Release\db_load.exe",
-        "build_windows\Win32\Release\db_log_verify.exe",
-        "build_windows\Win32\Release\db_printlog.exe",
-        "build_windows\Win32\Release\db_recover.exe",
-        "build_windows\Win32\Release\db_replicate.exe",
-        "build_windows\Win32\Release\db_sql_codegen.exe",
-        "build_windows\Win32\Release\db_stat.exe",
-        "build_windows\Win32\Release\db_upgrade.exe",
-        "build_windows\Win32\Release\db_verify.exe"
-		*/
+//        "output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53s.lib"
     };
       
     build-command:@"
-		if ""${COMP}""==""vc10"" (
-			msbuild /p:Platform=Win32 /p:Configuration=${CONFIG} build_windows\Berkeley_DB_vs2010.sln
-		)
-		if ""${COMP}""==""vc8"" (
-			msbuild /p:Platform=Win32 /p:Configuration=${CONFIG} build_windows\Berkeley_DB.sln
-		)
+		setlocal
+		set CMPtoolset=v%COMP:~2%0
+		if ""%COMP:~2,1%"" == 7 (	if ""%COMP:~-1%"" == 1 (set CMPtoolset=v71))
+		
+		msbuild /p:Platform=Win32 /p:Configuration=${CONFIG} /p:PlatformToolset=%CMPtoolset% build_windows\Berkeley_DB_vs2010.sln
+		endlocal
+		
 		mkdir output\${COMP}\${PLAT}\${CONFIG}\
-		copy build_windows\Win32\${CONFIG}\libdb51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb51.lib
-		copy build_windows\Win32\${CONFIG}\libdb51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb51.exp
-		copy build_windows\Win32\${CONFIG}\libdb51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb51.dll
-		copy build_windows\Win32\${CONFIG}\libdb_sql51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.lib
-		copy build_windows\Win32\${CONFIG}\libdb_sql51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.exp
-		copy build_windows\Win32\${CONFIG}\libdb_sql51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_sql51.dll
-		copy build_windows\Win32\${CONFIG}\libdb_stl51.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.lib
-		copy build_windows\Win32\${CONFIG}\libdb_stl51.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.exp
-		copy build_windows\Win32\${CONFIG}\libdb_stl51.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51.dll
+		copy build_windows\Win32\${CONFIG}\libdb53.lib output\${COMP}\${PLAT}\${CONFIG}\libdb53.lib
+		copy build_windows\Win32\${CONFIG}\libdb53.exp output\${COMP}\${PLAT}\${CONFIG}\libdb53.exp
+		copy build_windows\Win32\${CONFIG}\libdb53.dll output\${COMP}\${PLAT}\${CONFIG}\libdb53.dll
+		copy build_windows\Win32\${CONFIG}\libdb_sql53.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.lib
+		copy build_windows\Win32\${CONFIG}\libdb_sql53.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.exp
+		copy build_windows\Win32\${CONFIG}\libdb_sql53.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_sql53.dll
+		copy build_windows\Win32\${CONFIG}\libdb_stl53.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.lib
+		copy build_windows\Win32\${CONFIG}\libdb_stl53.exp output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.exp
+		copy build_windows\Win32\${CONFIG}\libdb_stl53.dll output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53.dll
 		copy build_windows\Win32\${CONFIG}\dbsql.exe output\${COMP}\${PLAT}\${CONFIG}\dbsql.exe
 		copy build_windows\Win32\${CONFIG}\db_archive.exe output\${COMP}\${PLAT}\${CONFIG}\db_archive.exe
 		copy build_windows\Win32\${CONFIG}\db_checkpoint.exe output\${COMP}\${PLAT}\${CONFIG}\db_checkpoint.exe
@@ -111,7 +86,7 @@ x86 {
 		copy build_windows\Win32\${CONFIG}\db_upgrade.exe output\${COMP}\${PLAT}\${CONFIG}\db_upgrade.exe
 		copy build_windows\Win32\${CONFIG}\db_verify.exe output\${COMP}\${PLAT}\${CONFIG}\db_verify.exe
 		copy build_windows\Win32\${CONFIG}\ex_access.exe output\${COMP}\${PLAT}\${CONFIG}\ex_access.exe
-        copy build_windows\Win32\${CONFIG}_static\libdb_stl51s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib
+REM        copy build_windows\Win32\${CONFIG}_static\libdb_stl53s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53s.lib
     ";
       
     clean-command:@"
@@ -126,19 +101,19 @@ x64 {
 		CONFIG="${CONFIG??Debug}";
 	};
 
-    compiler: "${COMP}";
+    compiler: vc10;
     platform: "${PLAT}";
       
     targets: {
-		"output\${COMP}\x64\${CONFIG}\libdb51.lib",
-        "output\${COMP}\x64\${CONFIG}\libdb51.exp",
-        "output\${COMP}\x64\${CONFIG}\libdb51.dll",
-        "output\${COMP}\x64\${CONFIG}\libdb_sql51.lib",
-        "output\${COMP}\x64\${CONFIG}\libdb_sql51.exp",
-        "output\${COMP}\x64\${CONFIG}\libdb_sql51.dll",
-        "output\${COMP}\x64\${CONFIG}\libdb_stl51.lib",
-        "output\${COMP}\x64\${CONFIG}\libdb_stl51.exp",
-        "output\${COMP}\x64\${CONFIG}\libdb_stl51.dll",
+		"output\${COMP}\x64\${CONFIG}\libdb53.lib",
+        "output\${COMP}\x64\${CONFIG}\libdb53.exp",
+        "output\${COMP}\x64\${CONFIG}\libdb53.dll",
+        "output\${COMP}\x64\${CONFIG}\libdb_sql53.lib",
+        "output\${COMP}\x64\${CONFIG}\libdb_sql53.exp",
+        "output\${COMP}\x64\${CONFIG}\libdb_sql53.dll",
+        "output\${COMP}\x64\${CONFIG}\libdb_stl53.lib",
+        "output\${COMP}\x64\${CONFIG}\libdb_stl53.exp",
+        "output\${COMP}\x64\${CONFIG}\libdb_stl53.dll",
         "output\${COMP}\x64\${CONFIG}\dbsql.exe",
         "output\${COMP}\x64\${CONFIG}\db_archive.exe",
         "output\${COMP}\x64\${CONFIG}\db_checkpoint.exe",
@@ -155,26 +130,27 @@ x64 {
         "output\${COMP}\x64\${CONFIG}\db_upgrade.exe",
         "output\${COMP}\x64\${CONFIG}\db_verify.exe",
         "output\${COMP}\x64\${CONFIG}\ex_access.exe",
-        "output\${COMP}\x64\${CONFIG}\libdb_stl51s.lib"
+//        "output\${COMP}\x64\${CONFIG}\libdb_stl53s.lib"
     };
       
     build-command:@"
-		if ""${COMP}""==""vc10"" (
-			msbuild /p:Platform=x64 /p:Configuration=${CONFIG} build_windows\Berkeley_DB_vs2010.sln
-		)
-		if ""${COMP}""==""vc8"" (
-			msbuild /p:Platform=x64 /p:Configuration=${CONFIG} build_windows\Berkeley_DB.sln
-		)
+		setlocal
+		set CMPtoolset=v%COMP:~2%0
+		if ""%COMP:~2,1%"" == 7 (	if ""%COMP:~-1%"" == 1 (set CMPtoolset=v71))
+
+		msbuild /p:Platform=x64 /p:Configuration=${CONFIG} /p:PlatformToolset=%CMPtoolset% build_windows\Berkeley_DB_vs2010.sln
+		endlocal
+
 		mkdir output\${COMP}\x64\${CONFIG}\
-		copy build_windows\x64\${CONFIG}\libdb51.lib output\${COMP}\x64\${CONFIG}\libdb51.lib
-		copy build_windows\x64\${CONFIG}\libdb51.exp output\${COMP}\x64\${CONFIG}\libdb51.exp
-		copy build_windows\x64\${CONFIG}\libdb51.dll output\${COMP}\x64\${CONFIG}\libdb51.dll
-		copy build_windows\x64\${CONFIG}\libdb_sql51.lib output\${COMP}\x64\${CONFIG}\libdb_sql51.lib
-		copy build_windows\x64\${CONFIG}\libdb_sql51.exp output\${COMP}\x64\${CONFIG}\libdb_sql51.exp
-		copy build_windows\x64\${CONFIG}\libdb_sql51.dll output\${COMP}\x64\${CONFIG}\libdb_sql51.dll
-		copy build_windows\x64\${CONFIG}\libdb_stl51.lib output\${COMP}\x64\${CONFIG}\libdb_stl51.lib
-		copy build_windows\x64\${CONFIG}\libdb_stl51.exp output\${COMP}\x64\${CONFIG}\libdb_stl51.exp
-		copy build_windows\x64\${CONFIG}\libdb_stl51.dll output\${COMP}\x64\${CONFIG}\libdb_stl51.dll
+		copy build_windows\x64\${CONFIG}\libdb53.lib output\${COMP}\x64\${CONFIG}\libdb53.lib
+		copy build_windows\x64\${CONFIG}\libdb53.exp output\${COMP}\x64\${CONFIG}\libdb53.exp
+		copy build_windows\x64\${CONFIG}\libdb53.dll output\${COMP}\x64\${CONFIG}\libdb53.dll
+		copy build_windows\x64\${CONFIG}\libdb_sql53.lib output\${COMP}\x64\${CONFIG}\libdb_sql53.lib
+		copy build_windows\x64\${CONFIG}\libdb_sql53.exp output\${COMP}\x64\${CONFIG}\libdb_sql53.exp
+		copy build_windows\x64\${CONFIG}\libdb_sql53.dll output\${COMP}\x64\${CONFIG}\libdb_sql53.dll
+		copy build_windows\x64\${CONFIG}\libdb_stl53.lib output\${COMP}\x64\${CONFIG}\libdb_stl53.lib
+		copy build_windows\x64\${CONFIG}\libdb_stl53.exp output\${COMP}\x64\${CONFIG}\libdb_stl53.exp
+		copy build_windows\x64\${CONFIG}\libdb_stl53.dll output\${COMP}\x64\${CONFIG}\libdb_stl53.dll
 		copy build_windows\x64\${CONFIG}\dbsql.exe output\${COMP}\x64\${CONFIG}\dbsql.exe
 		copy build_windows\x64\${CONFIG}\db_archive.exe output\${COMP}\x64\${CONFIG}\db_archive.exe
 		copy build_windows\x64\${CONFIG}\db_checkpoint.exe output\${COMP}\x64\${CONFIG}\db_checkpoint.exe
@@ -191,7 +167,7 @@ x64 {
 		copy build_windows\x64\${CONFIG}\db_upgrade.exe output\${COMP}\x64\${CONFIG}\db_upgrade.exe
 		copy build_windows\x64\${CONFIG}\db_verify.exe output\${COMP}\x64\${CONFIG}\db_verify.exe
 		copy build_windows\x64\${CONFIG}\ex_access.exe output\${COMP}\x64\${CONFIG}\ex_access.exe
-        copy build_windows\x64\${CONFIG}_static\libdb_stl51s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl51s.lib
+REM        copy build_windows\x64\${CONFIG}_static\libdb_stl53s.lib output\${COMP}\${PLAT}\${CONFIG}\libdb_stl53s.lib
     ";
       
     clean-command:@"
@@ -214,37 +190,26 @@ common-test {
         rmdir /S /Q access.db-journal >nul 2>nul
     ";
 
-	/*
-    clean-command:@"
-        del /Q *.db *.dump
-        rmdir /S /Q access.db-journal
-    ";
-	*/
 };
 
 release {
 	set: {
-		COMP="${COMP??vc8, vc10}";
+		COMP="${COMP??vc10}";
 		PLAT="${PLAT??x86, x64}";
 		CONFIG="Release";
 	};
 
-	/*
-	There is a problem in vc8 (VS 2005) where MSBUILD in the x64 envirinment
-	contains incorrect include paths by default.  The easiest solution to this
-	is to use the x86_64 cross-compiler tools instead, by setting the environ
-	to x86 for the x64 build in vc8.
-	*/
     build-command: @"
+		if ""${built}"" equ ""true"" goto endrel
+		
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
-				if ""%%A""==""vc8"" (
-					ptk %%B --COMP=%%A --PLAT=x86 --nologo || goto failed
-				) else (
+					ptk clean %%B
 					ptk %%B --COMP=%%A --PLAT=%%B --nologo || goto failed
-				)
 			)
 		)
+		
+		:endrel
     ";
 };
 
@@ -271,7 +236,7 @@ debug {
 
 test {
 	set: {
-		COMP="${COMP??vc8, vc10}";
+		COMP="${COMP??vc10}";
 		PLAT="${PLAT??x86, x64}";
 	};
 
@@ -284,41 +249,32 @@ test {
 			)
 		)
     ";
-
-	/*
-    clean-command:@"
-        ptk clean test-x86
-    ";
-	*/
 };
 
 package {
 	set: {
-		COMP="${COMP??vc8, vc10}";
+		COMP="${COMP??vc10}";
 		PLAT="${PLAT??x86, x64}";
 	};
 
-    uses: { release };
+    uses: { 
+		release,
+		update-version,
+	};
+
+    targets: {(COMP,PLAT) => @"copkg\berkeleydb-dev[${0}]-${NewVersion}-${1}.msi",};
 
     build-command: @"
-        if ""${noversion}"" neq ""true"" ptk update-version
-		cd COPKG
+		pushd COPKG
         REM Start with the common dev package...
         autopackage.exe berkeleydb-dev-common.autopkg || goto failed
         
 		for %%A in (${COMP}) do (
 			for %%B in (${PLAT}) do (
-                REM Build the end-user assembly package first, then the dev package that depends on it...
-				autopackage.exe berkeleydb.autopkg --arc=%%B --flav=%%A || goto failed
+				autopackage.exe berkeleydb.autopkg berkeleydb-dev.autopkg --arc=%%B --flav=%%A || goto failed
 			)
 		)
-
-		for %%A in (${COMP}) do (
-			for %%B in (${PLAT}) do (
-                REM Build the end-user assembly package first, then the dev package that depends on it...
-                autopackage.exe berkeleydb-dev.autopkg --arc=%%B --flav=%%A || goto failed
-			)
-		)
+		popd
     ";
 };
 
@@ -327,11 +283,13 @@ update-version {
     
     build-command : @"
         REM auto-increment version.inc file...
+        if ""${noversion}"" equ ""true"" goto endver
         
         pushd COPKG
         setlocal EnableDelayedExpansion
         set VERSTRING=#define { package-version: ${NewVersion}; }
         echo !VERSTRING! > version.inc
         popd
+		:endver
     ";
 }
