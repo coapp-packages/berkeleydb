@@ -1,85 +1,67 @@
-@import "version.inc";
-@import "outercurve.inc";
+@import version.inc;
 
-#define { 
-    flavor: "${flav??vc10}"; 
-    arch : "${arc??x86}";
+nuget {
+	// the nuspec file metadata. Gets created/updated on build
+	nuspec {
+		id = BerkeleyDB;
+		version : ${package-version};
+		title: Berkeley DB;
+		authors: {BerkeleyDB contributors};
+		owners: {CoApp Project};
+		licenseUrl: "http://www.oracle.com/technetwork/products/berkeleydb/downloads/oslicense-093458.html";
+        iconUrl: "http://www.oracle.com/ocom/groups/public/@otn/documents/digitalasset/118387.gif";
+		projectUrl: "http://github.com/coapp-packages/berkeleydb";
+		requireLicenseAcceptance:true;
+		summary: Oracle Berkeley DB;
+		description: @"Oracle Berkeley DB is the industry-leading open source, embeddable storage engine that provides developers a fast, reliable, local database with zero administration. Oracle Berkeley DB is a library that links directly into your application. Your application makes simple function calls, rather than sending messages to a remote server, eliminating the performance penalty of client-server architectures.
+	BerkeleyDB homepage:  http://www.oracle.com/technetwork/products/berkeleydb/overview/index.html";
+		releaseNotes: "Release of BerkeleyDB 5.3.21.";
+		copyright: Copyright 2013;
+		tags: { BerkeleyDB bdb native CoApp };
+
+	};
+
+	// the files that go into the content folders
+	// (inserted into the nuspec file)
+	files {
+		include: { 
+            ..\build_windows\*.h,
+        };
+
+		docs: {  ..\docs\**\* };
+        
+        source: {
+                    ..\**\*.c,
+                    ..\**\*.h,
+                };
+        
+		("v100,v110", "Win32,x64", "release,debug", "Dynamic,Static,ltcg") => {
+			[${0},${1},${2},${3}] {
+				lib:     { .\output\${0}\${1}\${2}\${3}\*.lib };
+                tools:   { .\output\${0}\${1}\${2}\${3}\*.exe };
+			};
+		};
+		("v100,v110", "Win32,x64", "release,debug", "Dynamic") => {
+			[${0},${1},${2},${3}] {
+				bin:     { .\output\${0}\${1}\${2}\${3}\*.dll };
+				symbols: { .\output\${0}\${1}\${2}\${3}\*.pdb };
+                // tools+=  { .\output\${0}\${1}\${2}\${3}\*.dll };
+			};
+		};
+
+	};
+
+	// the VC++ .props file that gets generated and inserted into the ${d_content} folder
+	props { 
+		// we're going to generate a number of properties anyway. 
+        // so even if the packager doesn't specify the props object 
+        // we're going to make this file.
+	};
+
+	// the VC++ .targets file that gets generated and inserted into the ${d_content} folder
+	targets {
+		// every configuration needs to reference the include directories.
+		Defines += HAS_BDB;
+	};
 }
 
-package {
-    name: "berkeleydb[${flavor}]";
-    version: "${package-version}";
-    arch : "${arch}";
-    
-    display-name: "Berkeley Database library";
-    location: "http://coapp.org/repository/${OutputFilename}";
-
-    feed: "http://coapp.org/repository/packages.atom.xml";
-    publisher: "CoApp Project";
-}
-
-files[dlls] {
-    root: @"..\output\${flavor}\${arch}\Release";
-  
-    include: {
-        "libdb53.dll",
-        "libdb_sql53.dll",
-        "libdb_stl53.dll"
-    };
-    
-    trim-path: all;
-};
-
-license[sleepycat] {
-    license: "..\LICENSE";
-    license-url: "http://www.opensource.org/licenses/Sleepycat";
-    license-type: "sleepycat";
-}
-
-files[files-to-sign] {
-    include: {
-        dlls
-    };
-}
-
-provides {
-    feature: "database.berkeley" = "5.3";
-}
-
-metadata {
-    summary: "Berkeley Database library";
-    description: @"The Berkeley DB library provides key-value storage in a specific file format.";
-    
-    author-version : "5.3.21";
-    bug-tracker: "https://github.com/coapp-packages/berkeleydb/issues";
-    stability : "0";
-    licenses : {
-        sleepycat
-    };
-}
-
-compatability-policy {
-    minimum: "5.3.0.0";
-    maximum: "${OneLessThanCurrent}"; // this is the default
-}
-
-assembly[berkeleydb[${flavor}]] {
-    include : {
-        dlls
-    };
-}
-
-signing {
-    attributes : {
-        company="Outercurve Foundation",
-        description="${Package.PackageDetails.SummaryDescription}",
-        product-name="berkeleydb",
-        product-version="${package-version}",
-        file-version="${package-version}",
-    };
-    
-    replace-signature: true; 
-    include: {
-        files-to-sign
-    };    
-}

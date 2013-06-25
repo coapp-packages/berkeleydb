@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="PreBuildCmds;PreBuildTargets;Build;PostBuildCmds;PostBuildTargets" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="CoApp">
+    <CoAppEtcDirectory>$(registry:HKEY_LOCAL_MACHINE\Software\Outercurve\CoApp.Powershell\etc)</CoAppEtcDirectory>
+  </PropertyGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-variables.vcxproj')" Project="$(CoAppEtcDirectory)\common-variables.vcxproj" />
+  <PropertyGroup Label="CustomSettings" />
+  <PropertyGroup Label="ConfigurationSettings">
+    <!-- set to Application or DynamicLibrary (DynamicLibrary can get altered to StaticLibrary by PTK -->
+    <ConfigurationType>Application</ConfigurationType>
+    <!-- Common Compiler Defines (semicolon delimited) -->
+    <Defines>_CRT_NONSTDC_NO_DEPRECATE;_CRT_SECURE_NO_DEPRECATE;_WINDOWS;WIN32</Defines>
+    <!-- Additional Include folders (semicolon delimited) -->
+    <IncludeDirectories>..\..\include;..\..\src\dbinc;..\..\src;..\..\build_windows</IncludeDirectories>
+    <!-- Additional Library folders (semicolon delimited) -->
+    <LibraryDirectories>..\..\lib</LibraryDirectories>
+    <!-- Libraries to Link with -->
+    <Libraries>ws2_32.lib;libdb.lib</Libraries>
+    <!-- Batch script to run before Build-->
+    <PreBuild>
+    </PreBuild>
+    <!-- Batch script to run after Build-->
+    <PostBuild>
+    </PostBuild>
+    <!-- Batch script to run before Link step-->
+    <PreLink>
+    </PreLink>
+    <!-- Batch script to run after Link-->
+    <PostLink>
+    </PostLink>
+    <!-- Batch script to run before Lib step-->
+    <PreLib>
+    </PreLib>
+    <!-- Batch script to run after Lib-->
+    <PostLib>
+    </PostLib>
+    <!-- Targets to run before Build (semcolon delimited)-->
+    <PreBuildTargets>
+    </PreBuildTargets>
+    <!-- Targets to run before Build (semcolon delimited)-->
+    <PostBuildTargets>
+    </PostBuildTargets>
+    <!-- for Dynamic libs, you can specify the Module .DEF file path -->
+    <ModuleDefinitionFile>
+    </ModuleDefinitionFile>
+    <Defines Condition="$(IS_DEBUG)">_DEBUG;$(Defines)</Defines>
+    <Defines Condition="$(IS_RELEASE)">NDEBUG;$(Defines)</Defines>
+  </PropertyGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-header.vcxproj')" Project="$(CoAppEtcDirectory)\common-header.vcxproj" />
+  <ItemGroup Label="C Source Files">
+    <!-- Include the source files to compile here -->
+    <!-- <ClCompile Include="..\src\foo.c" /> -->
+    <ClCompile Include="..\..\src\clib\getopt.c" />
+    <ClCompile Include="..\..\util\db_tuner.c" />
+  </ItemGroup>
+  <ItemGroup Label="Resource Files">
+    <!-- Include the source files to compile here -->
+    <!-- <ResourceCompile Include="..\src\foo.rc" /> -->
+  </ItemGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-footer.vcxproj')" Project="$(CoAppEtcDirectory)\common-footer.vcxproj" />
+</Project>

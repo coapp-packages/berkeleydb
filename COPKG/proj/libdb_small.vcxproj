@@ -1,0 +1,265 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="PreBuildCmds;PreBuildTargets;Build;PostBuildCmds;PostBuildTargets" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="CoApp">
+    <CoAppEtcDirectory>$(registry:HKEY_LOCAL_MACHINE\Software\Outercurve\CoApp.Powershell\etc)</CoAppEtcDirectory>
+  </PropertyGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-variables.vcxproj')" Project="$(CoAppEtcDirectory)\common-variables.vcxproj" />
+  <PropertyGroup Label="CustomSettings" />
+  <PropertyGroup Label="ConfigurationSettings">
+    <!-- set to Application or DynamicLibrary (DynamicLibrary can get altered to StaticLibrary by PTK -->
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <!-- Common Compiler Defines (semicolon delimited) -->
+    <Defines>_CRT_NONSTDC_NO_DEPRECATE;_CRT_SECURE_NO_DEPRECATE;_WINDOWS;WIN32;HAVE_SMALLBUILD;UNICODE;_UNICODE</Defines>
+    <!-- Additional Include folders (semicolon delimited) -->
+    <IncludeDirectories>..\..\include;..\..\src\dbinc;..\..\src;..\..\build_windows</IncludeDirectories>
+    <!-- Additional Library folders (semicolon delimited) -->
+    <LibraryDirectories>
+    </LibraryDirectories>
+    <!-- Libraries to Link with -->
+    <Libraries>
+    </Libraries>
+    <!-- Batch script to run before Build-->
+    <PreBuild>
+    </PreBuild>
+    <!-- Batch script to run after Build-->
+    <PostBuild>
+    </PostBuild>
+    <!-- Batch script to run before Link step-->
+    <PreLink>
+    </PreLink>
+    <!-- Batch script to run after Link-->
+    <PostLink>
+    </PostLink>
+    <!-- Batch script to run before Lib step-->
+    <PreLib>
+    </PreLib>
+    <!-- Batch script to run after Lib-->
+    <PostLib>
+    </PostLib>
+    <!-- Targets to run before Build (semcolon delimited)-->
+    <PreBuildTargets>
+    </PreBuildTargets>
+    <!-- Targets to run before Build (semcolon delimited)-->
+    <PostBuildTargets>
+    </PostBuildTargets>
+    <!-- for Dynamic libs, you can specify the Module .DEF file path -->
+    <ModuleDefinitionFile>
+    </ModuleDefinitionFile>
+    <Defines Condition="$(IS_DEBUG)">_DEBUG;DIAGNOSTIC;$(Defines)</Defines>
+    <Defines Condition="$(IS_RELEASE)">NDEBUG;$(Defines)</Defines>
+    <Defines Condition="$(IS_STATIC) Or $(IS_LTCG)">_LIB;$(Defines)</Defines>
+    <Defines Condition="$(IS_DYNAMIC)">_USRDLL;DB_CREATE_DLL;$(Defines)</Defines>
+    <LibraryDirectories Condition="$(IS_DYNAMIC)">..\..\lib;$(LibraryDirectories)</LibraryDirectories>
+    <Libraries Condition="$(IS_DYNAMIC)">ws2_32.lib;$(Libraries)</Libraries>
+    <ModuleDefinitionFile Condition="$(IS_DYNAMIC)">..\..\build_windows\libdb_small.def</ModuleDefinitionFile>
+  </PropertyGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-header.vcxproj')" Project="$(CoAppEtcDirectory)\common-header.vcxproj" />
+  <ItemGroup Label="C Source Files">
+    <!-- Include the source files to compile here -->
+    <!-- <ClCompile Include="..\src\foo.c" /> -->
+    <ClCompile Include="..\..\lang\cxx\cxx_channel.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_db.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_dbc.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_dbt.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_env.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_except.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_lock.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_logc.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_mpool.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_multi.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_seq.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_site.cpp" />
+    <ClCompile Include="..\..\lang\cxx\cxx_txn.cpp" />
+    <ClCompile Include="..\..\src\btree\btree_auto.c" />
+    <ClCompile Include="..\..\src\btree\bt_compact.c" />
+    <ClCompile Include="..\..\src\btree\bt_compare.c" />
+    <ClCompile Include="..\..\src\btree\bt_conv.c" />
+    <ClCompile Include="..\..\src\btree\bt_curadj.c" />
+    <ClCompile Include="..\..\src\btree\bt_cursor.c" />
+    <ClCompile Include="..\..\src\btree\bt_delete.c" />
+    <ClCompile Include="..\..\src\btree\bt_method.c" />
+    <ClCompile Include="..\..\src\btree\bt_open.c" />
+    <ClCompile Include="..\..\src\btree\bt_put.c" />
+    <ClCompile Include="..\..\src\btree\bt_rec.c" />
+    <ClCompile Include="..\..\src\btree\bt_reclaim.c" />
+    <ClCompile Include="..\..\src\btree\bt_recno.c" />
+    <ClCompile Include="..\..\src\btree\bt_rsearch.c" />
+    <ClCompile Include="..\..\src\btree\bt_search.c" />
+    <ClCompile Include="..\..\src\btree\bt_split.c" />
+    <ClCompile Include="..\..\src\btree\bt_stat.c" />
+    <ClCompile Include="..\..\src\btree\bt_upgrade.c" />
+    <ClCompile Include="..\..\src\clib\isalpha.c" />
+    <ClCompile Include="..\..\src\clib\strsep.c" />
+    <ClCompile Include="..\..\src\common\clock.c" />
+    <ClCompile Include="..\..\src\common\crypto_stub.c" />
+    <ClCompile Include="..\..\src\common\dbt.c" />
+    <ClCompile Include="..\..\src\common\db_byteorder.c" />
+    <ClCompile Include="..\..\src\common\db_err.c" />
+    <ClCompile Include="..\..\src\common\db_getlong.c" />
+    <ClCompile Include="..\..\src\common\db_idspace.c" />
+    <ClCompile Include="..\..\src\common\db_log2.c" />
+    <ClCompile Include="..\..\src\common\db_shash.c" />
+    <ClCompile Include="..\..\src\common\mkpath.c" />
+    <ClCompile Include="..\..\src\common\os_method.c" />
+    <ClCompile Include="..\..\src\common\util_cache.c" />
+    <ClCompile Include="..\..\src\common\util_log.c" />
+    <ClCompile Include="..\..\src\common\util_sig.c" />
+    <ClCompile Include="..\..\src\common\zerofill.c" />
+    <ClCompile Include="..\..\src\dbreg\dbreg.c" />
+    <ClCompile Include="..\..\src\dbreg\dbreg_auto.c" />
+    <ClCompile Include="..\..\src\dbreg\dbreg_rec.c" />
+    <ClCompile Include="..\..\src\dbreg\dbreg_stat.c" />
+    <ClCompile Include="..\..\src\dbreg\dbreg_util.c" />
+    <ClCompile Include="..\..\src\db\crdel_auto.c" />
+    <ClCompile Include="..\..\src\db\crdel_rec.c" />
+    <ClCompile Include="..\..\src\db\db.c" />
+    <ClCompile Include="..\..\src\db\db_am.c" />
+    <ClCompile Include="..\..\src\db\db_auto.c" />
+    <ClCompile Include="..\..\src\db\db_backup.c" />
+    <ClCompile Include="..\..\src\db\db_cam.c" />
+    <ClCompile Include="..\..\src\db\db_cds.c" />
+    <ClCompile Include="..\..\src\db\db_compact.c" />
+    <ClCompile Include="..\..\src\db\db_conv.c" />
+    <ClCompile Include="..\..\src\db\db_copy.c" />
+    <ClCompile Include="..\..\src\db\db_dispatch.c" />
+    <ClCompile Include="..\..\src\db\db_dup.c" />
+    <ClCompile Include="..\..\src\db\db_iface.c" />
+    <ClCompile Include="..\..\src\db\db_join.c" />
+    <ClCompile Include="..\..\src\db\db_meta.c" />
+    <ClCompile Include="..\..\src\db\db_method.c" />
+    <ClCompile Include="..\..\src\db\db_open.c" />
+    <ClCompile Include="..\..\src\db\db_overflow.c" />
+    <ClCompile Include="..\..\src\db\db_pr.c" />
+    <ClCompile Include="..\..\src\db\db_rec.c" />
+    <ClCompile Include="..\..\src\db\db_reclaim.c" />
+    <ClCompile Include="..\..\src\db\db_remove.c" />
+    <ClCompile Include="..\..\src\db\db_rename.c" />
+    <ClCompile Include="..\..\src\db\db_ret.c" />
+    <ClCompile Include="..\..\src\db\db_setid.c" />
+    <ClCompile Include="..\..\src\db\db_setlsn.c" />
+    <ClCompile Include="..\..\src\db\db_sort_multiple.c" />
+    <ClCompile Include="..\..\src\db\db_stati.c" />
+    <ClCompile Include="..\..\src\db\db_truncate.c" />
+    <ClCompile Include="..\..\src\db\db_upg.c" />
+    <ClCompile Include="..\..\src\db\db_upg_opd.c" />
+    <ClCompile Include="..\..\src\db\db_vrfy_stub.c" />
+    <ClCompile Include="..\..\src\db\partition.c" />
+    <ClCompile Include="..\..\src\env\env_alloc.c" />
+    <ClCompile Include="..\..\src\env\env_backup.c" />
+    <ClCompile Include="..\..\src\env\env_config.c" />
+    <ClCompile Include="..\..\src\env\env_failchk.c" />
+    <ClCompile Include="..\..\src\env\env_file.c" />
+    <ClCompile Include="..\..\src\env\env_globals.c" />
+    <ClCompile Include="..\..\src\env\env_method.c" />
+    <ClCompile Include="..\..\src\env\env_name.c" />
+    <ClCompile Include="..\..\src\env\env_open.c" />
+    <ClCompile Include="..\..\src\env\env_recover.c" />
+    <ClCompile Include="..\..\src\env\env_region.c" />
+    <ClCompile Include="..\..\src\env\env_register.c" />
+    <ClCompile Include="..\..\src\env\env_sig.c" />
+    <ClCompile Include="..\..\src\env\env_stat.c" />
+    <ClCompile Include="..\..\src\fileops\fileops_auto.c" />
+    <ClCompile Include="..\..\src\fileops\fop_basic.c" />
+    <ClCompile Include="..\..\src\fileops\fop_rec.c" />
+    <ClCompile Include="..\..\src\fileops\fop_util.c" />
+    <ClCompile Include="..\..\src\hash\hash_func.c" />
+    <ClCompile Include="..\..\src\hash\hash_stub.c" />
+    <ClCompile Include="..\..\src\heap\heap_stub.c" />
+    <ClCompile Include="..\..\src\hmac\hmac.c" />
+    <ClCompile Include="..\..\src\hmac\sha1.c" />
+    <ClCompile Include="..\..\src\lock\lock.c" />
+    <ClCompile Include="..\..\src\lock\lock_deadlock.c" />
+    <ClCompile Include="..\..\src\lock\lock_failchk.c" />
+    <ClCompile Include="..\..\src\lock\lock_id.c" />
+    <ClCompile Include="..\..\src\lock\lock_list.c" />
+    <ClCompile Include="..\..\src\lock\lock_method.c" />
+    <ClCompile Include="..\..\src\lock\lock_region.c" />
+    <ClCompile Include="..\..\src\lock\lock_stat.c" />
+    <ClCompile Include="..\..\src\lock\lock_timer.c" />
+    <ClCompile Include="..\..\src\lock\lock_util.c" />
+    <ClCompile Include="..\..\src\log\log.c" />
+    <ClCompile Include="..\..\src\log\log_archive.c" />
+    <ClCompile Include="..\..\src\log\log_compare.c" />
+    <ClCompile Include="..\..\src\log\log_debug.c" />
+    <ClCompile Include="..\..\src\log\log_get.c" />
+    <ClCompile Include="..\..\src\log\log_method.c" />
+    <ClCompile Include="..\..\src\log\log_put.c" />
+    <ClCompile Include="..\..\src\log\log_stat.c" />
+    <ClCompile Include="..\..\src\log\log_verify_stub.c" />
+    <ClCompile Include="..\..\src\mp\mp_alloc.c" />
+    <ClCompile Include="..\..\src\mp\mp_backup.c" />
+    <ClCompile Include="..\..\src\mp\mp_bh.c" />
+    <ClCompile Include="..\..\src\mp\mp_fget.c" />
+    <ClCompile Include="..\..\src\mp\mp_fmethod.c" />
+    <ClCompile Include="..\..\src\mp\mp_fopen.c" />
+    <ClCompile Include="..\..\src\mp\mp_fput.c" />
+    <ClCompile Include="..\..\src\mp\mp_fset.c" />
+    <ClCompile Include="..\..\src\mp\mp_method.c" />
+    <ClCompile Include="..\..\src\mp\mp_mvcc.c" />
+    <ClCompile Include="..\..\src\mp\mp_region.c" />
+    <ClCompile Include="..\..\src\mp\mp_register.c" />
+    <ClCompile Include="..\..\src\mp\mp_resize.c" />
+    <ClCompile Include="..\..\src\mp\mp_stat.c" />
+    <ClCompile Include="..\..\src\mp\mp_sync.c" />
+    <ClCompile Include="..\..\src\mp\mp_trickle.c" />
+    <ClCompile Include="..\..\src\mutex\mut_alloc.c" />
+    <ClCompile Include="..\..\src\mutex\mut_failchk.c" />
+    <ClCompile Include="..\..\src\mutex\mut_method.c" />
+    <ClCompile Include="..\..\src\mutex\mut_region.c" />
+    <ClCompile Include="..\..\src\mutex\mut_stat.c" />
+    <ClCompile Include="..\..\src\mutex\mut_win32.c" />
+    <ClCompile Include="..\..\src\os\os_abort.c" />
+    <ClCompile Include="..\..\src\os\os_alloc.c" />
+    <ClCompile Include="..\..\src\os\os_ctime.c" />
+    <ClCompile Include="..\..\src\os\os_path.c" />
+    <ClCompile Include="..\..\src\os\os_pid.c" />
+    <ClCompile Include="..\..\src\os\os_root.c" />
+    <ClCompile Include="..\..\src\os\os_rpath.c" />
+    <ClCompile Include="..\..\src\os\os_stack.c" />
+    <ClCompile Include="..\..\src\os\os_tmpdir.c" />
+    <ClCompile Include="..\..\src\os\os_uid.c" />
+    <ClCompile Include="..\..\src\os_windows\os_abs.c" />
+    <ClCompile Include="..\..\src\os_windows\os_clock.c" />
+    <ClCompile Include="..\..\src\os_windows\os_config.c" />
+    <ClCompile Include="..\..\src\os_windows\os_cpu.c" />
+    <ClCompile Include="..\..\src\os_windows\os_dir.c" />
+    <ClCompile Include="..\..\src\os_windows\os_errno.c" />
+    <ClCompile Include="..\..\src\os_windows\os_fid.c" />
+    <ClCompile Include="..\..\src\os_windows\os_flock.c" />
+    <ClCompile Include="..\..\src\os_windows\os_fsync.c" />
+    <ClCompile Include="..\..\src\os_windows\os_getenv.c" />
+    <ClCompile Include="..\..\src\os_windows\os_handle.c" />
+    <ClCompile Include="..\..\src\os_windows\os_map.c" />
+    <ClCompile Include="..\..\src\os_windows\os_mkdir.c" />
+    <ClCompile Include="..\..\src\os_windows\os_open.c" />
+    <ClCompile Include="..\..\src\os_windows\os_rename.c" />
+    <ClCompile Include="..\..\src\os_windows\os_rw.c" />
+    <ClCompile Include="..\..\src\os_windows\os_seek.c" />
+    <ClCompile Include="..\..\src\os_windows\os_stat.c" />
+    <ClCompile Include="..\..\src\os_windows\os_truncate.c" />
+    <ClCompile Include="..\..\src\os_windows\os_unlink.c" />
+    <ClCompile Include="..\..\src\os_windows\os_yield.c" />
+    <ClCompile Include="..\..\src\qam\qam_stub.c" />
+    <ClCompile Include="..\..\src\repmgr\repmgr_stub.c" />
+    <ClCompile Include="..\..\src\rep\rep_stub.c" />
+    <ClCompile Include="..\..\src\sequence\sequence.c" />
+    <ClCompile Include="..\..\src\sequence\seq_stat.c" />
+    <ClCompile Include="..\..\src\txn\txn.c" />
+    <ClCompile Include="..\..\src\txn\txn_auto.c" />
+    <ClCompile Include="..\..\src\txn\txn_chkpt.c" />
+    <ClCompile Include="..\..\src\txn\txn_failchk.c" />
+    <ClCompile Include="..\..\src\txn\txn_method.c" />
+    <ClCompile Include="..\..\src\txn\txn_rec.c" />
+    <ClCompile Include="..\..\src\txn\txn_recover.c" />
+    <ClCompile Include="..\..\src\txn\txn_region.c" />
+    <ClCompile Include="..\..\src\txn\txn_stat.c" />
+    <ClCompile Include="..\..\src\txn\txn_util.c" />
+    <ClCompile Include="..\..\src\xa\xa.c" />
+    <ClCompile Include="..\..\src\xa\xa_map.c" />
+  </ItemGroup>
+  <ItemGroup Label="Resource Files">
+    <!-- Include the source files to compile here -->
+    <!-- <ResourceCompile Include="..\src\foo.rc" /> -->
+  </ItemGroup>
+  <Import Condition="Exists('$(CoAppEtcDirectory)\common-footer.vcxproj')" Project="$(CoAppEtcDirectory)\common-footer.vcxproj" />
+</Project>
